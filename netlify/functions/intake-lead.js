@@ -1,4 +1,5 @@
 const { google } = require("googleapis");
+const twilio = require("twilio");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 
@@ -117,10 +118,12 @@ if (!assignedAgent) {
   throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 }
 
-const mockSmsPayload = {
+const smsPayload = {
   to: assignedAgent.agent_phone,
   message: `New EngagePriority lead assigned: ${leadPayload.full_name || "Unknown Lead"}`
 };
+
+const smsResult = await sendSmsIfEnabled(smsPayload);
 
 timing.total_ms = Date.now() - startTotal;
 
@@ -145,7 +148,8 @@ return {
       cycle_length: assignmentResult.cycle_length,
       cycle_preview: assignmentResult.cycle_preview
     },
-    sms_payload_preview: mockSmsPayload,
+    sms_payload_preview: smsPayload,
+    sms_send_result: smsResult,
     message: "Lead intake path completed. SMS was not sent."
   })
 };
@@ -270,4 +274,36 @@ x = temp;
 }
 
 return x;
+}
+
+async function sendSmsIfEnabled({ to, message }) {
+  const enabled = String(process.env.ENABLE_SMS_SEND || "").toLowerCase() === "true";
+
+  if (!enabled) {
+    return {
+      sent: false,
+      reason: "SMS sending disabled (ENABLE_SMS_SEND != true)"
+    };
+  }
+
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_PHONE;
+
+  if (!accountSid || !authToken || !from) {
+    throw new Error("Missing Twilio environment variables.");
+  }
+
+  const client = twilio(accountSid, authToken);
+
+  const result = await client.messages.create({
+    body: message,
+    from,
+    to
+  });
+
+  return {
+    sent: true,
+    sid: result.sid
+  };
 }
