@@ -30,6 +30,7 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = google.sheets({ version: "v4", auth });
+const leadId = await generateLeadId(sheets);
 
 t0 = Date.now();
 const clientsRes = await sheets.spreadsheets.values.get({
@@ -137,6 +138,7 @@ return {
       routing_strategy: routingStrategy
     },
     lead_preview: {
+      lead_id: leadId,
       full_name: leadPayload.full_name || null,
       phone: leadPayload.phone || null,
       email: leadPayload.email || null
@@ -308,4 +310,53 @@ async function sendSmsIfEnabled({ to, message }) {
     sent: true,
     sid: result.sid
   };
+}
+
+async function generateLeadId(sheets) {
+  const counterRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: "SystemCounters!A1:D1000"
+  });
+
+  const rows = counterRes.data.values || [];
+
+  if (rows.length < 2) {
+    throw new Error("SystemCounters tab must contain a lead_id counter row.");
+  }
+
+  const headers = rows[0];
+  const counterNameIndex = headers.indexOf("counter_name");
+  const currentValueIndex = headers.indexOf("current_value");
+  const updatedTsIndex = headers.indexOf("updated_ts_utc");
+
+  const leadCounterRowIndex = rows.findIndex((row, index) => {
+    return index > 0 && String(row[counterNameIndex] || "").trim() === "lead_id";
+  });
+
+  if (leadCounterRowIndex === -1) {
+    throw new Error("SystemCounters lead_id counter row not found.");
+  }
+
+  const currentValue = parseInt(rows[leadCounterRowIndex][currentValueIndex] || "0", 10);
+
+  if (!Number.isFinite(currentValue) || currentValue < 0) {
+    throw new Error(`Invalid lead_id counter current_value: ${rows[leadCounterRowIndex][currentValueIndex]}`);
+  }
+
+  const nextValue = currentValue + 1;
+  const leadId = `L-${String(nextValue).padStart(6, "0")}`;
+
+  const sheetRowNumber = leadCounterRowIndex + 1;
+  const updatedTsUtc = new Date().toISOString();
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: `SystemCounters!B${sheetRowNumber}:C${sheetRowNumber}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[nextValue, updatedTsUtc]]
+    }
+  });
+
+  return leadId;
 }
