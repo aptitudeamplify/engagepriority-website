@@ -1,92 +1,95 @@
 const { google } = require("googleapis");
 
-exports.handler = async (event, context) => {
-const startTotal = Date.now();
-
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 
-const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
-
-const auth = new google.auth.GoogleAuth({
-credentials,
-scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
-
-const sheets = google.sheets({ version: "v4", auth });
+exports.handler = async (event, context) => {
+const startTotal = Date.now();
 
 const timing = {
 total_ms: 0,
 sheets_read_clients_ms: 0,
 sheets_read_agents_ms: 0,
 sheets_read_pointer_ms: 0,
-wrr_compute_ms: 0,
-sheets_write_pointer_ms: 0,
+assignment_compute_ms: 0,
+sheets_write_pointer_ms: 0
 };
 
 try {
-// STEP 1 — Read Clients
+const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
+const auth = new google.auth.GoogleAuth({
+  credentials,
+  scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+});
+
+const sheets = google.sheets({ version: "v4", auth });
+
 let t0 = Date.now();
 const clientsRes = await sheets.spreadsheets.values.get({
-spreadsheetId: SHEET_ID,
-range: "Clients!A1:Z1000",
+  spreadsheetId: SHEET_ID,
+  range: "Clients!A1:Z1000"
 });
 timing.sheets_read_clients_ms = Date.now() - t0;
 
-// STEP 2 — Read Agents
 t0 = Date.now();
 const agentsRes = await sheets.spreadsheets.values.get({
   spreadsheetId: SHEET_ID,
-  range: "Agents!A1:Z1000",
+  range: "Agents!A1:Z1000"
 });
 timing.sheets_read_agents_ms = Date.now() - t0;
 
-// STEP 3 — Read RoutingState
 t0 = Date.now();
 const routingRes = await sheets.spreadsheets.values.get({
   spreadsheetId: SHEET_ID,
-  range: "RoutingState!A1:Z1000",
+  range: "RoutingState!A1:Z1000"
 });
 timing.sheets_read_pointer_ms = Date.now() - t0;
 
-const agentsRows = agentsRes.data.values;
-const routingRows = routingRes.data.values;
+const clientsRows = clientsRes.data.values || [];
+const agentsRows = agentsRes.data.values || [];
+const routingRows = routingRes.data.values || [];
 
-const agentHeaders = agentsRows[0];
-const routingHeaders = routingRows[0];
+if (clientsRows.length < 2) {
+  throw new Error("Clients tab must contain a header row and at least one client row.");
+}
 
-const agents = agentsRows.slice(1).map(row => {
-  const obj = {};
-  agentHeaders.forEach((h, i) => obj[h] = row[i]);
-  return obj;
-}).filter(a => a.agent_status === "ACTIVE");
+if (agentsRows.length < 2) {
+  throw new Error("Agents tab must contain a header row and at least one agent row.");
+}
 
-const routing = routingRows.slice(1)[0];
-const routingObj = {};
-routingHeaders.forEach((h, i) => routingObj[h] = routing[i]);
+if (routingRows.length < 2) {
+  throw new Error("RoutingState tab must contain a header row and at least one routing state row.");
+}
 
-let pointer = parseInt(routingObj.routing_pointer || "0", 10);
+const clients = rowsToObjects(clientsRows);
+const agents = rowsToObjects(agentsRows);
+const routingStates = rowsToObjects(routingRows);
 
-// STEP 4 — WRR COMPUTE
+const client = clients[0];
+const routingState = routingStates[0];
+
+const routingStrategy = String(client.routing_strategy || "").trim();
+
+if (!routingStrategy) {
+  throw new Error(`Missing routing_strategy for client_id: ${client.client_id}`);
+}
+
+const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
+
+if (!Number.isFinite(routingPointer) || routingPointer < 0) {
+  throw new Error(`Invalid routing_pointer: ${routingState.routing_pointer}`);
+}
+
 t0 = Date.now();
 
-const sortedAgents = agents.sort((a, b) => {
-  return parseInt(a.priority_slot) - parseInt(b.priority_slot);
+const assignmentResult = routeByStrategy({
+  routing_strategy: routingStrategy,
+  agents,
+  routing_pointer: routingPointer
 });
 
-const expanded = [];
-sortedAgents.forEach(agent => {
-  const weight = parseInt(agent.assignment_weight || "1", 10);
-  for (let i = 0; i < weight; i++) {
-    expanded.push(agent);
-  }
-});
+timing.assignment_compute_ms = Date.now() - t0;
 
-const assigned = expanded[pointer % expanded.length];
-const newPointer = (pointer + 1) % expanded.length;
-
-timing.wrr_compute_ms = Date.now() - t0;
-
-// STEP 5 — Write pointer back
 t0 = Date.now();
 
 await sheets.spreadsheets.values.update({
@@ -94,27 +97,31 @@ await sheets.spreadsheets.values.update({
   range: "RoutingState!B2",
   valueInputOption: "RAW",
   requestBody: {
-    values: [[newPointer]],
-  },
+    values: [[assignmentResult.routing_pointer_after]]
+  }
 });
 
 timing.sheets_write_pointer_ms = Date.now() - t0;
-
-const totalTime = Date.now() - startTotal;
-timing.total_ms = totalTime;
+timing.total_ms = Date.now() - startTotal;
 
 return {
   statusCode: 200,
   body: JSON.stringify({
     timing,
-    assignment: {
-      assigned_agent_id: assigned.agent_id,
-      routing_pointer_before: pointer,
-      routing_pointer_after: newPointer,
+    client: {
+      client_id: client.client_id,
+      routing_strategy: routingStrategy
     },
-    agents_considered: agents.length,
+    assignment: {
+      assigned_agent_id: assignmentResult.assigned_agent_id,
+      routing_pointer_before: assignmentResult.routing_pointer_before,
+      routing_pointer_after: assignmentResult.routing_pointer_after,
+      cycle_length: assignmentResult.cycle_length,
+      cycle_preview: assignmentResult.cycle_preview
+    },
+    agents_considered: assignmentResult.active_agents_count,
     message: "Test completed"
-  }),
+  })
 };
 
 } catch (error) {
@@ -123,7 +130,107 @@ statusCode: 500,
 body: JSON.stringify({
 error: error.message,
 stack: error.stack
-}),
+})
 };
 }
 };
+
+function rowsToObjects(rows) {
+const headers = rows[0];
+
+return rows.slice(1).map(row => {
+const obj = {};
+headers.forEach((header, index) => {
+obj[header] = row[index];
+});
+return obj;
+});
+}
+
+function routeByStrategy({ routing_strategy, agents, routing_pointer }) {
+const normalizedStrategy = String(routing_strategy || "").trim();
+
+if (normalizedStrategy === "WEIGHTED_INTERLEAVED") {
+return routeWeightedInterleaved({
+agents,
+routing_pointer
+});
+}
+
+throw new Error(`Unsupported routing_strategy: ${normalizedStrategy}`);
+}
+
+function routeWeightedInterleaved({ agents, routing_pointer }) {
+const activeAgents = agents.filter(agent => {
+return String(agent.agent_status || "").trim() === "ACTIVE";
+});
+
+if (activeAgents.length === 0) {
+throw new Error("No ACTIVE agents available for WEIGHTED_INTERLEAVED routing.");
+}
+
+const sortedAgents = [...activeAgents].sort((a, b) => {
+return parseInt(a.priority_slot, 10) - parseInt(b.priority_slot, 10);
+});
+
+const weights = sortedAgents.map(agent => {
+const weight = parseInt(agent.assignment_weight, 10);
+
+
+if (!Number.isFinite(weight) || weight <= 0) {
+  throw new Error(`Invalid assignment_weight for agent_id ${agent.agent_id}: ${agent.assignment_weight}`);
+}
+
+return weight;
+
+
+});
+
+const reducedDivisor = weights.reduce((currentGcd, weight) => {
+return gcd(currentGcd, weight);
+});
+
+const remainingCounts = sortedAgents.map((agent, index) => {
+return {
+agent,
+remaining: weights[index] / reducedDivisor
+};
+});
+
+const cycle = [];
+
+while (remainingCounts.some(item => item.remaining > 0)) {
+for (const item of remainingCounts) {
+if (item.remaining > 0) {
+cycle.push(item.agent);
+item.remaining -= 1;
+}
+}
+}
+
+const assignedAgent = cycle[routing_pointer % cycle.length];
+const routingPointerBefore = routing_pointer % cycle.length;
+const routingPointerAfter = routingPointerBefore + 1 >= cycle.length ? 0 : routingPointerBefore + 1;
+
+return {
+assigned_agent_id: assignedAgent.agent_id,
+routing_pointer_before: routingPointerBefore,
+routing_pointer_after: routingPointerAfter,
+cycle_length: cycle.length,
+cycle_preview: cycle.map(agent => agent.agent_id),
+active_agents_count: activeAgents.length
+};
+}
+
+function gcd(a, b) {
+let x = Math.abs(a);
+let y = Math.abs(b);
+
+while (y !== 0) {
+const temp = y;
+y = x % y;
+x = temp;
+}
+
+return x;
+}
