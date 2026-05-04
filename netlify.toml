@@ -1,0 +1,10 @@
+[[redirects]]
+  from = "/a/:short_code"
+  to = "https://hook.us2.make.com/l2pp1j3o7b178dg5up5guysyb2rg9i2o?short_code=:short_code"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/x/:short_code"
+  to = "/.netlify/functions/handle-action?short_code=:short_code"
+  status = 200
