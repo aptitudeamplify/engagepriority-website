@@ -150,7 +150,9 @@ return {
     },
     sms_payload_preview: smsPayload,
     sms_send_result: smsResult,
-    message: "Lead intake path completed. SMS was not sent."
+message: smsResult.sent
+  ? "Lead intake path completed. SMS was sent."
+  : "Lead intake path completed. SMS was not sent."
   })
 };
 
