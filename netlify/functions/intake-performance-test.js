@@ -1,15 +1,14 @@
 const { google } = require("googleapis");
-const fs = require("fs");
-const path = require("path");
 
 exports.handler = async (event, context) => {
 const startTotal = Date.now();
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 
-const keyPath = path.join(process.cwd(), "service-account.json");
+const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
 const auth = new google.auth.GoogleAuth({
-keyFile: keyPath,
+credentials,
 scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 
