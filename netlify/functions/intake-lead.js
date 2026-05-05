@@ -1,5 +1,6 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
+const { randomUUID } = require("crypto");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -22,6 +23,9 @@ try {
 let t0 = Date.now();
 
 const leadPayload = parseLeadPayload(event);
+
+const trace_id = randomUUID();
+console.log("trace_id:", trace_id);
 timing.parse_payload_ms = Date.now() - t0;
 
 const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
@@ -92,6 +96,13 @@ if (!Number.isFinite(routingPointer) || routingPointer < 0) {
 
 t0 = Date.now();
 
+console.log("intake_before_routing", {
+  trace_id,
+  lead_id: leadId,
+  client_id: client.client_id,
+  routing_strategy: routingStrategy
+});
+
 const assignmentResult = routeByStrategy({
   routing_strategy: routingStrategy,
   agents,
@@ -99,6 +110,15 @@ const assignmentResult = routeByStrategy({
 });
 
 timing.assignment_compute_ms = Date.now() - t0;
+
+console.log("intake_after_assignment", {
+  trace_id,
+  lead_id: leadId,
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  routing_pointer_before: assignmentResult.routing_pointer_before,
+  routing_pointer_after: assignmentResult.routing_pointer_after,
+  cycle_length: assignmentResult.cycle_length
+});
 
 t0 = Date.now();
 
@@ -125,7 +145,8 @@ const actionLinks = await createInitialActionLinks({
     sheets,
   lead_id: leadId,
   client,
-  assigned_agent_id: assignmentResult.assigned_agent_id
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  trace_id
 });
 
 t0 = Date.now();
@@ -161,13 +182,13 @@ const row = [
   "NEW",                                 // lead_status
   nowUtc,                                // last_updated_timestamp
   "",                                    // notes
-  "",                                    // trace_id
+  trace_id,                              // trace_id
   "",                                    // reminder_claimed_ts_utc
   "",                                    // validation_reason
   "",                                    // spam_score
-  actionLinks.CALL_NOW.short_code,       // token_call_now
-  actionLinks.ACK_LATER.short_code,      // token_ack_later
-  actionLinks.REASSIGN.short_code,       // token_reassign
+  "",                                    // token_call_now
+  "",                                    // token_ack_later
+  "",                                    // token_reassign
   "",                                    // token_outcome_contacted
   "",                                    // token_outcome_no_answer
   "",                                    // token_outcome_reassign
@@ -231,6 +252,7 @@ return {
   statusCode: 200,
   body: JSON.stringify({
     status: "INTAKE_TEST_SUCCESS",
+    trace_id,
     timing,
     client: {
       client_id: client.client_id,
@@ -461,7 +483,7 @@ async function generateLeadId(sheets) {
   return leadId;
 }
 
-async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id }) {
+async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
   const actionTypes = ["CALL_NOW", "ACK_LATER", "REASSIGN"];
 
   const created_ts_utc = new Date().toISOString();
@@ -531,13 +553,22 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
       "", // used_ts_utc
       "", // notes
       "", // deactivated_ts_utc
-      ""  // deactivation_reason
+      "",  // deactivation_reason
+      trace_id  // trace_id
     ]);
   }
 
+  console.log("intake_before_actionlinkmap_write", {
+    trace_id,
+    lead_id,
+    client_id: client.client_id,
+    assigned_agent_id,
+    action_count: actionTypes.length
+  });
+
   await sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:N",
+    range: "ActionLinkMap!A:O",
     valueInputOption: "RAW",
     requestBody: {
       values: rowsToInsert
