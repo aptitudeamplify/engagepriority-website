@@ -585,7 +585,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
 
     rowsToInsert.push([
       short_code,
-      short_code,
+      public_url,
       action_type,
       lead_id,
       client.client_id,
