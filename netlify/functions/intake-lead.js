@@ -244,6 +244,13 @@ const smsPayload = {
     `Reassign: ${actionLinks.REASSIGN.public_url}`
 };
 
+console.log("intake_before_sms_send", {
+  trace_id,
+  lead_id: leadId,
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  phone: assignedAgent.agent_phone
+});
+
 const smsResult = await sendSmsIfEnabled(smsPayload);
 
 timing.total_ms = Date.now() - startTotal;
