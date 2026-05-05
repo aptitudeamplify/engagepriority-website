@@ -2,6 +2,7 @@ const { google } = require("googleapis");
 const twilio = require("twilio");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
+const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 
 exports.handler = async (event, context) => {
 const startTotal = Date.now();
@@ -119,9 +120,20 @@ if (!assignedAgent) {
   throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 }
 
+const actionLinks = await createInitialActionLinks({
+  sheets,
+  lead_id: leadId,
+  client,
+  assigned_agent_id: assignmentResult.assigned_agent_id
+});
+
 const smsPayload = {
   to: assignedAgent.agent_phone,
-  message: `New EngagePriority lead assigned: ${leadPayload.full_name || "Unknown Lead"}`
+  message:
+    `New EngagePriority lead assigned: ${leadPayload.full_name || "Unknown Lead"}\n\n` +
+    `Call now: ${actionLinks.CALL_NOW.public_url}\n` +
+    `Ack later: ${actionLinks.ACK_LATER.public_url}\n` +
+    `Reassign: ${actionLinks.REASSIGN.public_url}`
 };
 
 const smsResult = await sendSmsIfEnabled(smsPayload);
@@ -150,9 +162,10 @@ return {
       cycle_length: assignmentResult.cycle_length,
       cycle_preview: assignmentResult.cycle_preview
     },
+    action_links_preview: actionLinks,
     sms_payload_preview: smsPayload,
     sms_send_result: smsResult,
-message: smsResult.sent
+    message: smsResult.sent
   ? "Lead intake path completed. SMS was sent."
   : "Lead intake path completed. SMS was not sent."
   })
@@ -359,4 +372,90 @@ async function generateLeadId(sheets) {
   });
 
   return leadId;
+}
+
+async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id }) {
+  const actionTypes = ["CALL_NOW", "ACK_LATER", "REASSIGN"];
+
+  const created_ts_utc = new Date().toISOString();
+
+  const existingRes = await sheets.spreadsheets.values.get({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: "ActionLinkMap!A1:N1000"
+  });
+
+  const existingRows = existingRes.data.values || [];
+
+  const existingShortCodes = new Set(
+    existingRows.slice(1).map(row => row[0])
+  );
+
+  function generateShortCode() {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < 6; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  const results = {};
+  const rowsToInsert = [];
+
+  for (const action_type of actionTypes) {
+    let short_code;
+    let attempts = 0;
+
+    while (attempts < 3) {
+      const candidate = generateShortCode();
+
+      if (!existingShortCodes.has(candidate)) {
+        short_code = candidate;
+        existingShortCodes.add(candidate);
+        break;
+      }
+
+      attempts++;
+    }
+
+    if (!short_code) {
+      throw new Error(`Failed to generate unique short_code for ${action_type} after 3 attempts`);
+    }
+
+    const public_url = `https://engagepriority.com/a/${short_code}`;
+
+    results[action_type] = {
+      short_code,
+      token: short_code,
+      public_url
+    };
+
+    rowsToInsert.push([
+      short_code,
+      short_code,
+      action_type,
+      lead_id,
+      client.client_id,
+      client.lead_data_spreadsheet_id,
+      assigned_agent_id,
+      "", // expires_ts_utc
+      "TRUE",
+      created_ts_utc,
+      "", // used_ts_utc
+      "", // notes
+      "", // deactivated_ts_utc
+      ""  // deactivation_reason
+    ]);
+  }
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: "ActionLinkMap!A:N",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: rowsToInsert
+    }
+  });
+
+  return results;
 }
