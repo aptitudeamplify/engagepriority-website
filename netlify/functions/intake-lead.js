@@ -16,7 +16,8 @@ sheets_read_agents_ms: 0,
 sheets_read_pointer_ms: 0,
 assignment_compute_ms: 0,
 sheets_write_pointer_ms: 0,
-sheets_write_leadlog_ms: 0
+sheets_write_leadlog_ms: 0,
+sheets_write_reminderqueue_ms: 0
 };
 
 try {
@@ -234,6 +235,42 @@ await sheets.spreadsheets.values.append({
 });
 
 timing.sheets_write_leadlog_ms = Date.now() - t0;
+
+t0 = Date.now();
+
+const reminderDelayMinutes = parseInt(client.reminder_1_delay_minutes, 10);
+
+if (!Number.isFinite(reminderDelayMinutes) || reminderDelayMinutes <= 0) {
+  throw new Error(`Invalid reminder_1_delay_minutes for client_id: ${client.client_id}`);
+}
+
+const nextActionDue = new Date(Date.now() + reminderDelayMinutes * 60000).toISOString();
+
+const reminderRow = [
+  trace_id,
+  client.client_id,
+  leadId,
+  "", // token (not used at intake)
+  client.lead_data_spreadsheet_id,
+  assignmentResult.assigned_agent_id,
+  "TRUE",
+  nextActionDue,
+  "REMINDER_1",
+  "", // last_processed_ts_utc
+  "", // notes
+  ""  // dispatch_claimed_ts_utc
+];
+
+await sheets.spreadsheets.values.append({
+  spreadsheetId: SHEET_ID,
+  range: "ReminderQueue!A1",
+  valueInputOption: "RAW",
+  requestBody: {
+    values: [reminderRow]
+  }
+});
+
+timing.sheets_write_reminderqueue_ms = Date.now() - t0;
 
 const smsPayload = {
   to: assignedAgent.agent_phone,
