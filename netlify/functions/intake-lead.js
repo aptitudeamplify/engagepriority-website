@@ -14,7 +14,8 @@ sheets_read_clients_ms: 0,
 sheets_read_agents_ms: 0,
 sheets_read_pointer_ms: 0,
 assignment_compute_ms: 0,
-sheets_write_pointer_ms: 0
+sheets_write_pointer_ms: 0,
+sheets_write_leadlog_ms: 0
 };
 
 try {
@@ -121,18 +122,104 @@ if (!assignedAgent) {
 }
 
 const actionLinks = await createInitialActionLinks({
-  sheets,
+    sheets,
   lead_id: leadId,
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id
 });
+
+t0 = Date.now();
+
+const nowUtc = new Date().toISOString();
+
+const leadDataSpreadsheetId = client.lead_data_spreadsheet_id;
+
+if (!leadDataSpreadsheetId) {
+  throw new Error(`Missing lead_data_spreadsheet_id for client_id: ${client.client_id}`);
+}
+
+const row = [
+  leadId,                                // lead_id
+  client.client_id,                      // client_id
+  nowUtc,                                // created_timestamp
+  leadPayload.source_system || "",       // source_system
+  leadPayload.source_detail || "",       // source_detail
+  leadPayload.full_name || "",           // full_name
+  leadPayload.email || "",               // email
+  leadPayload.phone || "",               // phone
+  JSON.stringify(leadPayload),           // inbound_payload_json
+  "",                                    // normalized_payload_json
+  "",                                    // hardening_status
+  "",                                    // idempotency_status
+  "",                                    // validation_status
+  client.routing_strategy,               // routing_decision
+  "WEIGHTED_INTERLEAVED",                // routing_reason
+  assignmentResult.assigned_agent_id,    // assigned_agent_id
+  nowUtc,                                // assigned_timestamp
+  "FALSE",                               // contacted_flag
+  "",                                    // contact_timestamp
+  "NEW",                                 // lead_status
+  nowUtc,                                // last_updated_timestamp
+  "",                                    // notes
+  "",                                    // trace_id
+  "",                                    // reminder_claimed_ts_utc
+  "",                                    // validation_reason
+  "",                                    // spam_score
+  actionLinks.CALL_NOW.short_code,       // token_call_now
+  actionLinks.ACK_LATER.short_code,      // token_ack_later
+  actionLinks.REASSIGN.short_code,       // token_reassign
+  "",                                    // token_outcome_contacted
+  "",                                    // token_outcome_no_answer
+  "",                                    // token_outcome_reassign
+  "TRUE",                                // tokens_active
+  "FALSE",                               // acknowledged
+  "",                                    // ack_timestamp
+  "",                                    // ack_agent_id
+  "FALSE",                               // contact_attempt_started
+  "",                                    // contact_attempt_started_ts
+  "",                                    // contact_outcome
+  "FALSE",                               // reassign_requested
+  "",                                    // reassign_requested_ts
+  "",                                    // token_invalidated_ts
+  "",                                    // attempted_agent_ids
+  "0",                                   // reassignment_count
+  "1",                                   // assignment_attempt_count
+  "FALSE",                               // reassignment_pending
+  "",                                    // reassignment_reason
+  "",                                    // reassignment_requested_ts_utc
+  "",                                    // reassigned_from_agent_id
+  "",                                    // last_reassignment_ts_utc
+  nowUtc,                                // assignment_ts_utc
+  "",                                    // reassignment_status
+  "FALSE",                               // admin_escalation_required
+  "",                                    // admin_escalation_ts_utc
+  "",                                    // last_reassignment_reason
+  "0",                                   // non_response_reassignment_count
+  "",                                    // admin_escalation_reason
+  "",                                    // token_contacted_appt_set
+  "",                                    // token_contacted_not_interested
+  "0",                                   // no_answer_attempt_count
+  nowUtc,                                // scenario_started_ts_utc
+  ""                                     // scenario_ended_ts_utc
+];
+
+await sheets.spreadsheets.values.append({
+  spreadsheetId: leadDataSpreadsheetId,
+  range: "LeadLog_Active!A1",
+  valueInputOption: "RAW",
+  requestBody: {
+    values: [row]
+  }
+});
+
+timing.sheets_write_leadlog_ms = Date.now() - t0;
 
 const smsPayload = {
   to: assignedAgent.agent_phone,
   message:
     `New EngagePriority lead assigned: ${leadPayload.full_name || "Unknown Lead"}\n\n` +
     `Call now: ${actionLinks.CALL_NOW.public_url}\n` +
-    `Ack later: ${actionLinks.ACK_LATER.public_url}\n` +
+    `Call later: ${actionLinks.ACK_LATER.public_url}\n` +
     `Reassign: ${actionLinks.REASSIGN.public_url}`
 };
 
