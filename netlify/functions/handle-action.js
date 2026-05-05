@@ -69,7 +69,9 @@ if (data.status !== "SUCCESS") {
   };
 }
 
-if (data.action_type !== "CALL_NOW") {
+const supportedActionTypes = ["CALL_NOW", "CALL_LATER", "REASSIGN"];
+
+if (!supportedActionTypes.includes(data.action_type)) {
   return {
     statusCode: 200,
     headers: noCacheHeaders,
