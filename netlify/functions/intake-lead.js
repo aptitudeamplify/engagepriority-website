@@ -859,23 +859,26 @@ const reasons = [];
 let hard_reject = false;
 
 const digits = phone.replace(/\D/g, "");
+const nationalDigits = digits.length === 11 && digits.startsWith("1")
+  ? digits.slice(1)
+  : digits;
 let phone_usable = false;
 
-if (digits && digits.length >= 10) {
+if (nationalDigits && nationalDigits.length === 10) {
 phone_usable = true;
 
-if (/^(\d)\1+$/.test(digits)) {
+if (/^(\d)\1+$/.test(nationalDigits)) {
   spam_score += 35;
   reasons.push("repeated_digit_phone");
   hard_reject = true;
 }
 
 if (
-  digits === "1234567890" ||
-  digits === "0123456789" ||
-  digits === "1111111111" ||
-  digits === "2222222222" ||
-  digits === "5555555555"
+  nationalDigits === "1234567890" ||
+  nationalDigits === "0123456789" ||
+  nationalDigits === "1111111111" ||
+  nationalDigits === "2222222222" ||
+  nationalDigits === "5555555555"
 ) {
   spam_score += 35;
   reasons.push("fake_phone_pattern");
