@@ -6,6 +6,13 @@ const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 
 exports.handler = async (event, context) => {
+if (event.httpMethod !== "POST") {
+return {
+statusCode: 405,
+body: JSON.stringify({ error: "Method not allowed" })
+};
+}
+
 const startTotal = Date.now();
 
 const timing = {
@@ -27,6 +34,21 @@ const leadPayload = parseLeadPayload(event);
 
 const trace_id = randomUUID();
 console.log("trace_id:", trace_id);
+
+const intakeClientRef = (leadPayload.intake_client_reference || "").trim();
+
+if (!intakeClientRef) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "missing_intake_client_reference"
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+
 timing.parse_payload_ms = Date.now() - t0;
 
 const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
@@ -80,7 +102,96 @@ const clients = rowsToObjects(clientsRows);
 const agents = rowsToObjects(agentsRows);
 const routingStates = rowsToObjects(routingRows);
 
-const client = clients[0];
+const client = clients.find(row => {
+return String(row.intake_client_reference || "").trim() === intakeClientRef;
+});
+
+if (!client) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "unknown_client_reference"
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+if (String(client.client_status || "").trim().toUpperCase() !== "ACTIVE") {
+console.log("intake_validation_error", {
+trace_id,
+reason: "inactive_client",
+client_id: client.client_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+if (!client.lead_data_spreadsheet_id) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "missing_lead_data_spreadsheet_id",
+client_id: client.client_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+const normalizedLead = normalizeWebsiteLead(leadPayload);
+
+if (!normalizedLead.phone) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "missing_phone",
+client_id: client.client_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+Object.assign(leadPayload, normalizedLead);
+
+const eligibleAgents = agents.filter(agent => {
+return String(agent.client_id || "").trim() === client.client_id &&
+String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE";
+});
+
+if (eligibleAgents.length === 0) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "no_active_agents",
+client_id: client.client_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
+for (const agent of eligibleAgents) {
+const assignmentWeight = parseInt(agent.assignment_weight, 10);
+const prioritySlot = parseInt(agent.priority_slot, 10);
+
+if (!Number.isFinite(assignmentWeight) || assignmentWeight <= 0 || !Number.isFinite(prioritySlot) || !agent.agent_phone) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "invalid_agent_pool",
+client_id: client.client_id,
+agent_id: agent.agent_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+}
+
 const routingState = routingStates[0];
 
 const routingStrategy = String(client.routing_strategy || "").trim();
@@ -106,7 +217,7 @@ console.log("intake_before_routing", {
 
 const assignmentResult = routeByStrategy({
   routing_strategy: routingStrategy,
-  agents,
+  agents: eligibleAgents,
   routing_pointer: routingPointer
 });
 
@@ -143,7 +254,7 @@ if (!assignedAgent) {
 }
 
 const actionLinks = await createInitialActionLinks({
-    sheets,
+  sheets,
   lead_id: leadId,
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id,
@@ -621,3 +732,37 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
 
   return results;
 }
+
+function normalizeWebsiteLead(payload) {
+const fullNameRaw = String(payload.full_name || "").trim();
+const full_name = fullNameRaw || "New Lead";
+
+const nameParts = full_name.split(/\s+/).filter(Boolean);
+const first_name = nameParts[0] || "";
+const last_name = nameParts.length > 1 ? nameParts.slice(1).join(" ") : "";
+
+const email = String(payload.email || "").trim().toLowerCase();
+
+const phoneRaw = String(payload.phone || "").trim();
+const digits = phoneRaw.replace(/\D/g, "");
+
+let phone = "";
+
+if (digits.length === 10) {
+phone = `+1${digits}`;
+} else if (digits.length === 11 && digits.startsWith("1")) {
+phone = `+${digits}`;
+} else if (phoneRaw.startsWith("+") && digits.length >= 10) {
+phone = `+${digits}`;
+}
+
+return {
+...payload,
+full_name,
+first_name,
+last_name,
+email,
+phone
+};
+}
+
