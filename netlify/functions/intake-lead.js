@@ -13,6 +13,18 @@ body: JSON.stringify({ error: "Method not allowed" })
 };
 }
 
+const rawBody = event.body || "";
+
+if (rawBody.length > 10000) {
+console.log("intake_validation_error", {
+reason: "oversized_payload"
+});
+return {
+statusCode: 413,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
 const startTotal = Date.now();
 
 const timing = {
@@ -211,6 +223,21 @@ body: JSON.stringify({ error: "Invalid request" })
 
 Object.assign(leadPayload, normalizedLead);
 
+const intakeValidation = validateWebsiteLeadForIntake(leadPayload);
+
+if (intakeValidation.hard_reject) {
+console.log("intake_validation_error", {
+trace_id,
+reason: intakeValidation.validation_reason,
+spam_score: intakeValidation.spam_score,
+client_id: client.client_id
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "Invalid request" })
+};
+}
+
 const eligibleAgents = agents.filter(agent => {
 return String(agent.client_id || "").trim() === client.client_id &&
 String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE";
@@ -338,7 +365,7 @@ const row = [
   "",                                    // normalized_payload_json
   "",                                    // hardening_status
   "",                                    // idempotency_status
-  "",                                    // validation_status
+  intakeValidation.validation_status,    // validation_status
   client.routing_strategy,               // routing_decision
   "WEIGHTED_INTERLEAVED",                // routing_reason
   assignmentResult.assigned_agent_id,    // assigned_agent_id
@@ -350,8 +377,8 @@ const row = [
   "",                                    // notes
   trace_id,                              // trace_id
   "",                                    // reminder_claimed_ts_utc
-  "",                                    // validation_reason
-  "",                                    // spam_score
+  intakeValidation.validation_reason,    // validation_reason
+  String(intakeValidation.spam_score),   // spam_score
   "",                                    // token_call_now
   "",                                    // token_ack_later
   "",                                    // token_reassign
@@ -820,3 +847,107 @@ phone
 };
 }
 
+function validateWebsiteLeadForIntake(lead) {
+const name = String(lead.full_name || "").trim().toLowerCase();
+const email = String(lead.email || "").trim().toLowerCase();
+const phone = String(lead.phone || "").trim().toLowerCase();
+const source = String(lead.source_system || "").trim().toLowerCase();
+const sourceDetail = String(lead.source_detail || lead.intake_client_reference || "").trim().toLowerCase();
+
+let spam_score = 0;
+const reasons = [];
+let hard_reject = false;
+
+const digits = phone.replace(/\D/g, "");
+let phone_usable = false;
+
+if (digits && digits.length >= 10) {
+phone_usable = true;
+
+if (/^(\d)\1+$/.test(digits)) {
+  spam_score += 35;
+  reasons.push("repeated_digit_phone");
+  hard_reject = true;
+}
+
+if (
+  digits === "1234567890" ||
+  digits === "0123456789" ||
+  digits === "1111111111" ||
+  digits === "2222222222" ||
+  digits === "5555555555"
+) {
+  spam_score += 35;
+  reasons.push("fake_phone_pattern");
+  hard_reject = true;
+}
+}
+
+const fakeNamePatterns = ["test", "asdf", "qwerty", "demo", "fake", "sample", "na", "n/a", "unknown"];
+
+if (name && name.length >= 3 && fakeNamePatterns.some(p => name.includes(p))) {
+spam_score += 25;
+reasons.push("fake_or_test_name");
+}
+
+const disposableEmailPatterns = ["mailinator", "tempmail", "10minutemail", "guerrillamail", "trashmail"];
+
+let email_usable = false;
+
+if (email && email.includes("@")) {
+email_usable = true;
+
+if (disposableEmailPatterns.some(p => email.includes(p))) {
+  spam_score += 35;
+  reasons.push("disposable_email");
+}
+
+if (email.startsWith("test@") || email.includes("+test")) {
+  spam_score += 20;
+  reasons.push("test_email_pattern");
+}
+
+}
+
+if (!email_usable && !phone_usable) {
+spam_score += 100;
+reasons.push("no_usable_contact");
+hard_reject = true;
+}
+
+const spamTerms = ["crypto", "bitcoin", "seo", "backlink", "casino", "loan", "viagra", "forex"];
+const combinedText = `${name} ${email} ${source} ${sourceDetail}`.toLowerCase();
+
+if (/https?:\/\//.test(combinedText) || combinedText.includes("www.")) {
+spam_score += 25;
+reasons.push("url_detected");
+}
+
+if (spamTerms.some(term => combinedText.includes(term))) {
+spam_score += 25;
+reasons.push("spam_keyword");
+}
+
+if (/(.)\1{4,}/.test(combinedText)) {
+spam_score += 15;
+reasons.push("repeated_characters");
+}
+
+let validation_status = "VALID";
+
+if (spam_score >= 61) {
+validation_status = "INVALID";
+} else if (spam_score >= 31) {
+validation_status = "SUSPECT";
+}
+
+const validation_reason =
+reasons.length > 0 ? reasons.slice(0, 3).join("|") : "passed_validation_checks";
+
+return {
+validation_status,
+validation_reason,
+spam_score,
+hard_reject
+};
+}
