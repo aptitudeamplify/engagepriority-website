@@ -4,6 +4,8 @@ const { randomUUID } = require("crypto");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
+const MAKE_INTAKE_HANDOFF_WEBHOOK_URL = process.env.MAKE_INTAKE_HANDOFF_WEBHOOK_URL;
+
 
 exports.handler = async (event, context) => {
 if (event.httpMethod !== "POST") {
@@ -481,6 +483,50 @@ console.log("intake_before_sms_send", {
 });
 
 const smsResult = await sendSmsIfEnabled(smsPayload);
+
+try {
+if (MAKE_INTAKE_HANDOFF_WEBHOOK_URL) {
+const nowUtc = new Date().toISOString();
+
+const handoffPayload = {
+  event_type: "NETLIFY_INTAKE_COMPLETED",
+  trace_id,
+  lead_id: leadId,
+  client_id: client.client_id,
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  source_system,
+  source_detail: source_primary_key_value,
+  submitted_ts_utc: leadPayload.submitted_ts_utc || nowUtc,
+  created_ts_utc: nowUtc,
+  assignment_ts_utc: nowUtc,
+  leadlog_created: true,
+  action_link_count: 3,
+  reminder_created: true,
+  reminder_next_action_type: "REMINDER_1",
+  reminder_due_ts_utc: nextActionDue,
+  sms_status: "ATTEMPTED",
+  sms_sent_ts_utc: smsResult?.sent ? nowUtc : null,
+  sms_error_code: smsResult?.reason || null,
+  sms_error_message: smsResult?.reason || null,
+  status: "INTAKE_COMPLETED",
+  lead_preview: {
+    full_name: leadPayload.full_name,
+    phone_last4: (leadPayload.phone || "").slice(-4),
+    email: leadPayload.email || ""
+  }
+};
+
+await fetch(MAKE_INTAKE_HANDOFF_WEBHOOK_URL, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(handoffPayload)
+});
+
+}
+} catch (err) {
+console.log("intake_handoff_error", { trace_id });
+}
+
 
 timing.total_ms = Date.now() - startTotal;
 
