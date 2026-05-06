@@ -82,6 +82,11 @@ const routingRes = await sheets.spreadsheets.values.get({
 });
 timing.sheets_read_pointer_ms = Date.now() - t0;
 
+const intakeSourceMapRes = await sheets.spreadsheets.values.get({
+spreadsheetId: SHEET_ID,
+range: "IntakeSourceMap!A1:Z1000"
+});
+
 const clientsRows = clientsRes.data.values || [];
 const agentsRows = agentsRes.data.values || [];
 const routingRows = routingRes.data.values || [];
@@ -101,15 +106,64 @@ if (routingRows.length < 2) {
 const clients = rowsToObjects(clientsRows);
 const agents = rowsToObjects(agentsRows);
 const routingStates = rowsToObjects(routingRows);
+const intakeSourceMap = rowsToObjects(intakeSourceMapRes.data.values || []);
+
+const source_system = String(leadPayload.source_system || "WEBSITE").trim().toUpperCase();
+const source_primary_key_type = "source_detail";
+const source_primary_key_value = intakeClientRef;
+
+console.log("intake_source_detection", {
+trace_id,
+source_system,
+source_primary_key_type,
+source_primary_key_value
+});
+
+const matchingSourceRows = intakeSourceMap.filter(row => {
+return String(row.source_system || "").trim().toUpperCase() === source_system &&
+String(row.source_primary_key_type || "").trim() === source_primary_key_type &&
+String(row.source_primary_key_value || "").trim() === source_primary_key_value &&
+String(row.status || "").trim().toUpperCase() === "ACTIVE";
+});
+
+console.log("intake_source_map_lookup", {
+trace_id,
+match_count: matchingSourceRows.length
+});
+
+if (matchingSourceRows.length === 0) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "UNRESOLVED_CLIENT"
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "UNRESOLVED_CLIENT" })
+};
+}
+
+if (matchingSourceRows.length > 1) {
+console.log("intake_validation_error", {
+trace_id,
+reason: "AMBIGUOUS_CLIENT_MAPPING"
+});
+return {
+statusCode: 400,
+body: JSON.stringify({ error: "AMBIGUOUS_CLIENT_MAPPING" })
+};
+}
+
+const mappedClientId = matchingSourceRows[0].client_id;
 
 const client = clients.find(row => {
-return String(row.intake_client_reference || "").trim() === intakeClientRef;
+return String(row.client_id || "").trim() === String(mappedClientId || "").trim();
 });
+
 
 if (!client) {
 console.log("intake_validation_error", {
 trace_id,
-reason: "unknown_client_reference"
+reason: "INVALID_CLIENT_CONFIG"
 });
 return {
 statusCode: 400,
