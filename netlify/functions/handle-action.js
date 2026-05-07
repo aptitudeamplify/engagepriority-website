@@ -146,7 +146,10 @@ exports.handler = async function (event) {
         };
       }
 
-      const phone = data.display?.phone;
+      const phone =
+         event.body && JSON.parse(event.body).phone
+        ? JSON.parse(event.body).phone
+        : data.display?.phone;
 
       return {
         statusCode: 200,
