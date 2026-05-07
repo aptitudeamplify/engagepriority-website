@@ -285,7 +285,7 @@ exports.handler = async function (event) {
             <div style="font-size:28px; font-weight:bold;">${escapeHtml(phone)}</div>
           </div>
 
-          <form method="POST" style="margin-top:24px;">
+          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}" style="margin-top:24px;">
             <button type="submit" style="width:100%; font-size:22px; padding:16px 20px; border:0; border-radius:12px; cursor:pointer; background:#111; color:#fff;">
               Call Lead
             </button>
