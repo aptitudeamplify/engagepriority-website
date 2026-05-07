@@ -1,13 +1,17 @@
+const { google } = require("googleapis");
+
 const MAKE_AGENT_RESPONSE_WEBHOOK =
-process.env.MAKE_AGENT_RESPONSE_WEBHOOK_URL;
+  process.env.MAKE_AGENT_RESPONSE_WEBHOOK_URL;
+
+const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 
 const noCacheHeaders = {
-"Content-Type": "text/html; charset=utf-8",
-"Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
-"Pragma": "no-cache",
-"Expires": "0",
-"Surrogate-Control": "no-store",
-"X-Robots-Tag": "noindex, nofollow"
+  "Content-Type": "text/html; charset=utf-8",
+  "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+  "Pragma": "no-cache",
+  "Expires": "0",
+  "Surrogate-Control": "no-store",
+  "X-Robots-Tag": "noindex, nofollow"
 };
 
 function escapeHtml(value = "") {
@@ -20,8 +24,7 @@ function escapeHtml(value = "") {
 }
 
 function page(title, body) {
-return `<!doctype html>
-
+  return `<!doctype html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -34,69 +37,235 @@ ${body}
 }
 
 function errorPage(message) {
-return page("Error", `<h2>${escapeHtml(message)}</h2>`);
+  return page("Error", `<h2>${escapeHtml(message)}</h2>`);
+}
+
+function rowsToObjects(rows) {
+  const headers = rows[0] || [];
+
+  return rows.slice(1).map(row => {
+    const obj = {};
+    headers.forEach((header, index) => {
+      obj[header] = row[index];
+    });
+    return obj;
+  });
+}
+
+function isExpired(expiresTsUtc) {
+  const value = String(expiresTsUtc || "").trim();
+
+  if (!value) {
+    return false;
+  }
+
+  const expiresAt = new Date(value).getTime();
+
+  if (!Number.isFinite(expiresAt)) {
+    return true;
+  }
+
+  return expiresAt <= Date.now();
+}
+
+async function getSheetsClient() {
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
+
+  const auth = new google.auth.GoogleAuth({
+    credentials,
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"]
+  });
+
+  return google.sheets({ version: "v4", auth });
+}
+
+async function lookupActionLinkMapRow(sheets, shortCode) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: "ActionLinkMap!A1:O10000"
+  });
+
+  const rows = rowsToObjects(res.data.values || []);
+
+  return rows.find(row => {
+    return String(row.short_code || "").trim() === String(shortCode || "").trim();
+  });
+}
+
+async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: leadDataSpreadsheetId,
+    range: "LeadLog_Active!A1:BI10000"
+  });
+
+  const rows = rowsToObjects(res.data.values || []);
+
+  return rows.find(row => {
+    return String(row.lead_id || "").trim() === String(leadId || "").trim() &&
+      String(row.client_id || "").trim() === String(clientId || "").trim();
+  });
+}
+
+async function processAction(shortCode) {
+  const response = await fetch(MAKE_AGENT_RESPONSE_WEBHOOK, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      short_code: shortCode,
+      action_trigger_source: "ACTION_GATEWAY_CALL_BUTTON"
+    })
+  });
+
+  return response.json();
 }
 
 exports.handler = async function (event) {
-try {
-const shortCode = event.queryStringParameters?.short_code;
+  try {
+    const shortCode =
+      event.queryStringParameters?.short_code ||
+      event.queryStringParameters?.code;
 
-if (!shortCode) {
-  return {
-    statusCode: 400,
-    headers: noCacheHeaders,
-    body: errorPage("Invalid link")
-  };
-}
+    if (!shortCode) {
+      return {
+        statusCode: 400,
+        headers: noCacheHeaders,
+        body: errorPage("Invalid link")
+      };
+    }
 
-const response = await fetch(MAKE_AGENT_RESPONSE_WEBHOOK, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json"
-  },
-  body: JSON.stringify({
-    short_code: shortCode
-  })
-});
+    if (event.httpMethod === "POST") {
+      const data = await processAction(shortCode);
 
-const data = await response.json();
+      if (data.status !== "SUCCESS") {
+        return {
+          statusCode: 200,
+          headers: noCacheHeaders,
+          body: errorPage("Link expired or invalid")
+        };
+      }
 
-if (data.status !== "SUCCESS") {
-  return {
-    statusCode: 200,
-    headers: noCacheHeaders,
-    body: errorPage("Link expired or invalid")
-  };
-}
+      const phone = data.display?.phone;
 
-const supportedActionTypes = ["CALL_NOW", "CALL_LATER", "REASSIGN"];
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: page(
+          "Calling Lead",
+          `<h1>Calling lead...</h1>
+           <p>Your phone dialer should open now.</p>
+           <script>
+             window.location.href = "tel:${escapeHtml(phone)}";
+           </script>
+           <a href="tel:${escapeHtml(phone)}" style="font-size:20px;">Tap here if the dialer did not open</a>`
+        )
+      };
+    }
 
-if (!supportedActionTypes.includes(data.action_type)) {
-  return {
-    statusCode: 200,
-    headers: noCacheHeaders,
-    body: errorPage("Invalid action")
-  };
-}
+    const sheets = await getSheetsClient();
 
-const phone = data.display?.phone;
-const name = data.display?.lead_name || "Lead";
+    const actionRow = await lookupActionLinkMapRow(sheets, shortCode);
 
-return {
-  statusCode: 200,
-  headers: noCacheHeaders,
-  body: page(
-    "Call Lead",
-    `<h1>Call ${escapeHtml(name)}</h1>
-     <a href="tel:${escapeHtml(phone)}" style="font-size:20px;">Call Now</a>`
-  )
-};
+    if (!actionRow) {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Link expired or invalid")
+      };
+    }
 
-} catch (err) {
-return {
-statusCode: 500,
-headers: noCacheHeaders,
-body: errorPage("System error")
-};
-}
+    if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Link expired or invalid")
+      };
+    }
+
+    if (isExpired(actionRow.expires_ts_utc)) {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Link expired or invalid")
+      };
+    }
+
+    if (String(actionRow.action_type || "").trim().toUpperCase() !== "CALL_NOW") {
+      const data = await processAction(shortCode);
+
+      if (data.status !== "SUCCESS") {
+        return {
+          statusCode: 200,
+          headers: noCacheHeaders,
+          body: errorPage("Link expired or invalid")
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: page(
+          "Action Recorded",
+          `<h1>Action recorded</h1>`
+        )
+      };
+    }
+
+    const leadDataSpreadsheetId = String(actionRow.lead_data_spreadsheet_id || "").trim();
+    const leadId = String(actionRow.lead_id || "").trim();
+    const clientId = String(actionRow.client_id || "").trim();
+
+    if (!leadDataSpreadsheetId || !leadId || !clientId) {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Link expired or invalid")
+      };
+    }
+
+    const leadRow = await lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId);
+
+    if (!leadRow) {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Lead not found")
+      };
+    }
+
+    const phone = String(leadRow.phone || "").trim();
+    const name = String(leadRow.full_name || "Lead").trim();
+
+    if (!phone) {
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Lead phone not available")
+      };
+    }
+
+    return {
+      statusCode: 200,
+      headers: noCacheHeaders,
+      body: page(
+        "Call Lead",
+        `<h1>Call ${escapeHtml(name)}</h1>
+         <p style="font-size:20px;">${escapeHtml(phone)}</p>
+         <form method="POST">
+          <input type="hidden" name="short_code" value="${escapeHtml(shortCode)}" />
+           <button type="submit" style="font-size:22px; padding:14px 28px; cursor:pointer;">
+             Call Lead
+           </button>
+         </form>`
+      )
+    };
+
+  } catch (err) {
+    return {
+      statusCode: 500,
+      headers: noCacheHeaders,
+      body: errorPage("System error")
+    };
+  }
 };
