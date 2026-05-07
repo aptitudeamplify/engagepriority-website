@@ -118,7 +118,13 @@ async function processAction(shortCode) {
     })
   });
 
-  return response.json();
+  const text = await response.text();
+
+  return {
+    ok: response.ok,
+    statusCode: response.status,
+    body: text
+  };
 }
 
 function validateActionRowForCallNow(actionRow) {
@@ -240,7 +246,7 @@ exports.handler = async function (event) {
 
       const data = await processAction(shortCode);
 
-      if (data.status !== "SUCCESS") {
+      if (!data.ok) {
         return {
           statusCode: 200,
           headers: noCacheHeaders,
