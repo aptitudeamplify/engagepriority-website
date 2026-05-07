@@ -248,17 +248,31 @@ exports.handler = async function (event) {
     return {
       statusCode: 200,
       headers: noCacheHeaders,
-      body: page(
-        "Call Lead",
-        `<h1>Call ${escapeHtml(name)}</h1>
-         <p style="font-size:20px;">${escapeHtml(phone)}</p>
-         <form method="POST">
-          <input type="hidden" name="short_code" value="${escapeHtml(shortCode)}" />
-           <button type="submit" style="font-size:22px; padding:14px 28px; cursor:pointer;">
-             Call Lead
-           </button>
-         </form>`
-      )
+    body: page(
+      "EngagePriority Lead",
+      `<div style="max-width:420px; margin:0 auto; text-align:left; border:1px solid #ddd; border-radius:16px; padding:24px; box-shadow:0 4px 14px rgba(0,0,0,0.08);">
+        <div style="text-align:center; margin-bottom:20px;">
+        <div style="font-size:14px; color:#666; margin-bottom:6px;">EngagePriority Lead</div>
+        <h1 style="font-size:26px; margin:0;">${escapeHtml(name)}</h1>
+        </div>
+
+        <div style="margin:22px 0; text-align:center;">
+        <div style="font-size:13px; color:#666; margin-bottom:6px;">Phone</div>
+        <div style="font-size:28px; font-weight:bold;">${escapeHtml(phone)}</div>
+        </div>
+
+        <form method="POST" style="margin-top:24px;">
+        <input type="hidden" name="short_code" value="${escapeHtml(shortCode)}" />
+        <button type="submit" style="width:100%; font-size:22px; padding:16px 20px; border:0; border-radius:12px; cursor:pointer; background:#111; color:#fff;">
+            Call Lead
+        </button>
+        </form>
+
+        <p style="font-size:13px; color:#666; line-height:1.4; text-align:center; margin-top:18px;">
+        Pressing Call Lead records the action and opens your phone dialer.
+        </p>
+      </div>`
+    )
     };
 
   } catch (err) {
