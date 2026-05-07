@@ -143,7 +143,9 @@ function validateActionRowForCallNow(actionRow) {
 
 exports.handler = async function (event) {
   try {
-    const shortCode = event.queryStringParameters?.short_code;
+    const shortCode =
+     event.queryStringParameters?.short_code ||
+     event.path?.split("/").filter(Boolean).pop();
 
     if (!shortCode) {
       return {
