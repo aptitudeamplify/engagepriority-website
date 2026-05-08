@@ -237,13 +237,13 @@ exports.handler = async function (event) {
         console.log("POST RECEIVED", { shortCode });
     const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
         console.log("POST VALIDATION CHECK", {
-        shortCode,
-        found: Boolean(freshActionRow),
-        action_type: freshActionRow?.action_type || null,
-        is_active: freshActionRow?.is_active || null,
-        expires_ts_utc: freshActionRow?.expires_ts_utc || null,
-        lead_id: freshActionRow?.lead_id || null,
-        client_id: freshActionRow?.client_id || null
+            shortCode,
+            found: Boolean(freshActionRow),
+            action_type: freshActionRow?.action_type || null,
+            is_active: freshActionRow?.is_active || null,
+            expires_ts_utc: freshActionRow?.expires_ts_utc || null,
+            lead_id: freshActionRow?.lead_id || null,
+            client_id: freshActionRow?.client_id || null
         }
     );
 
@@ -256,7 +256,12 @@ exports.handler = async function (event) {
       }
 
       const data = await processAction(shortCode);
-
+        console.log("MAKE HANDOFF RESULT", {
+            ok: data.ok,
+            statusCode: data.statusCode,
+            body: data.body
+        }
+    );
       if (!data.ok) {
         return {
           statusCode: 200,
