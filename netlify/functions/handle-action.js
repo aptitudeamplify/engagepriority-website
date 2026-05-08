@@ -235,7 +235,17 @@ exports.handler = async function (event) {
 
     if (event.httpMethod === "POST") {
         console.log("POST RECEIVED", { shortCode });
-        const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
+    const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
+        console.log("POST VALIDATION CHECK", {
+        shortCode,
+        found: Boolean(freshActionRow),
+        action_type: freshActionRow?.action_type || null,
+        is_active: freshActionRow?.is_active || null,
+        expires_ts_utc: freshActionRow?.expires_ts_utc || null,
+        lead_id: freshActionRow?.lead_id || null,
+        client_id: freshActionRow?.client_id || null
+        }
+    );
 
       if (!validateActionRowForCallNow(freshActionRow)) {
         return {
