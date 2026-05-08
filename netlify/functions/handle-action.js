@@ -234,7 +234,8 @@ exports.handler = async function (event) {
     }
 
     if (event.httpMethod === "POST") {
-      const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
+        console.log("POST RECEIVED", { shortCode });
+        const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
 
       if (!validateActionRowForCallNow(freshActionRow)) {
         return {
