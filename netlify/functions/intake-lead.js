@@ -469,7 +469,7 @@ timing.sheets_write_reminderqueue_ms = Date.now() - t0;
 const smsPayload = {
   to: assignedAgent.agent_phone,
   message:
-    `New EngagePriority lead assigned: ${leadPayload.full_name || "Unknown Lead"}\n\n` +
+    `New EngagePriority lead assigned.\n\n` +
     `Call now: ${actionLinks.CALL_NOW.public_url}\n` +
     `Call later: ${actionLinks.ACK_LATER.public_url}\n` +
     `Reassign: ${actionLinks.REASSIGN.public_url}`
