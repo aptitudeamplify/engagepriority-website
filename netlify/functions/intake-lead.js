@@ -270,6 +270,28 @@ if (duplicateRowIndex !== -1) {
     reason: "DUPLICATE_LEAD"
   });
 
+  const duplicateHeaders = idempotencyRows[0] || [];
+const duplicateLeadIdColumn = duplicateHeaders.indexOf("lead_id");
+
+const duplicateLeadId =
+  duplicateLeadIdColumn !== -1
+    ? (idempotencyRows[duplicateRowIndex][duplicateLeadIdColumn] || "")
+    : "";
+
+await appendSystemEvent({
+  sheets,
+  event_id: randomUUID(),
+  event_timestamp: new Date().toISOString(),
+  client_id: client.client_id,
+  event_type: "DUPLICATE_LEAD",
+  reference_id: duplicateLeadId,
+  severity: "INFO",
+  message: "Duplicate lead blocked by Netlify intake idempotency check",
+  source_module: "netlify-intake-lead",
+  processed_flag: "FALSE",
+  trace_id
+});
+
   return {
     statusCode: 200,
     body: JSON.stringify({
@@ -1134,4 +1156,26 @@ validation_reason,
 spam_score,
 hard_reject
 };
+}
+
+async function appendSystemEvent({ sheets, event_id, event_timestamp, client_id, event_type, reference_id, severity, message, source_module, processed_flag, trace_id }) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "SystemEvents!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        event_id,
+        event_timestamp,
+        client_id,
+        event_type,
+        reference_id,
+        severity,
+        message,
+        source_module,
+        processed_flag,
+        trace_id
+      ]]
+    }
+  });
 }
