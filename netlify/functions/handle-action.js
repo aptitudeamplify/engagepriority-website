@@ -131,15 +131,16 @@ async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
   });
 }
 
-async function processAction(shortCode) {
+async function processAction(shortCode, selectedAction) {
   const response = await fetch(MAKE_AGENT_RESPONSE_WEBHOOK, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      short_code: shortCode,
-      action_trigger_source: "ACTION_GATEWAY_CALL_BUTTON"
+    short_code: shortCode,
+    selected_action: selectedAction,
+    action_trigger_source: "ACTION_GATEWAY_BUTTON"
     })
   });
 
@@ -233,7 +234,22 @@ exports.handler = async function (event) {
             claimedTsUtc
         );
 
-        const data = await processAction(shortCode);
+        const storedSelectedAction = String(
+            actionRow.selected_action || ""
+        ).trim().toUpperCase();
+
+        if (!storedSelectedAction) {
+            return {
+                statusCode: 200,
+                headers: noCacheHeaders,
+                body: errorPage("Link expired or invalid")
+            };
+        }
+
+        const data = await processAction(
+            shortCode,
+            storedSelectedAction
+        );
 
         if (!data.ok) {
             return {
@@ -296,8 +312,37 @@ exports.handler = async function (event) {
     }
 
     if (event.httpMethod === "POST") {
-    const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
-        
+        const selectedAction = String(
+            event.queryStringParameters?.selected_action || ""
+        ).trim().toUpperCase();
+                
+      if (!selectedAction) {
+        return {
+            statusCode: 400,
+            headers: noCacheHeaders,
+            body: errorPage("Missing action")
+        };
+       } 
+
+       const allowedActions = [
+        "CALL_NOW",
+        "ACK_LATER",
+        "REASSIGN",
+        "NO_ANSWER",
+        "CONTACTED_SET_APPOINTMENT",
+        "CONTACTED_NOT_INTERESTED"
+       ];
+
+       if (!allowedActions.includes(selectedAction)) {
+         return {
+            statusCode: 400,
+            headers: noCacheHeaders,
+            body: errorPage("Invalid action")
+         };
+       }
+
+       const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
+
       if (!validateActiveGatewayRow(freshActionRow)) {
         return {
           statusCode: 200,
@@ -314,12 +359,27 @@ exports.handler = async function (event) {
         claimedTsUtc
     );
 
-    const data = await processAction(shortCode);
+    const data = await processAction(
+        shortCode,
+        selectedAction
+    );
       if (!data.ok) {
         return {
           statusCode: 200,
           headers: noCacheHeaders,
           body: errorPage("Link expired or invalid")
+        };
+      }
+
+      if (selectedAction !== "CALL_NOW") {
+        return {
+            statusCode: 200,
+            headers: noCacheHeaders,
+            body: page(
+            "Action Recorded",
+            `<h1>Action Recorded</h1>
+            <p>Your response has been received successfully.</p>`
+            )
         };
       }
 
@@ -354,9 +414,21 @@ exports.handler = async function (event) {
             <div style="font-size:28px; font-weight:bold;">${escapeHtml(phone)}</div>
           </div>
 
-          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}" style="margin-top:24px;">
+          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=CALL_NOW" style="margin-top:24px;">
             <button type="submit" style="width:100%; font-size:22px; padding:16px 20px; border:0; border-radius:12px; cursor:pointer; background:#111; color:#fff;">
               Call Lead
+            </button>
+          </form>
+            
+          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=ACK_LATER" style="margin-top:12px;">
+            <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
+              Acknowledge / Later
+            </button>
+          </form>
+
+          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=REASSIGN" style="margin-top:12px;">
+            <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
+              Reassign
             </button>
           </form>
 
