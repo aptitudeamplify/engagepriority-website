@@ -249,7 +249,11 @@ exports.handler = async function (event) {
       return {
         statusCode: 200,
         headers: noCacheHeaders,
-        body: page("Action Recorded", `<h1>Action recorded</h1>`)
+        body: page(
+            "Action Recorded",
+            `<h1>Action Recorded</h1>
+            <p>Your response has been received successfully.</p>`
+            )
       };
     }
 
