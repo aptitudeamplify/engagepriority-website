@@ -109,7 +109,7 @@ async function claimActionLinkForDispatch(sheets, actionRow, claimedTsUtc) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: `ActionLinkMap!K${actionRow._sheet_row_number}`,
+    range: `ActionLinkMap!L${actionRow._sheet_row_number}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [[claimedTsUtc]]
@@ -152,7 +152,7 @@ async function processAction(shortCode) {
   };
 }
 
-function validateActionRowForCallNow(actionRow) {
+function validateActiveGatewayRow(actionRow) {
   if (!actionRow) {
     return false;
   }
@@ -168,11 +168,6 @@ function validateActionRowForCallNow(actionRow) {
   if (isExpired(actionRow.expires_ts_utc)) {
     return false;
   }
-
-  if (String(actionRow.action_type || "").trim().toUpperCase() !== "CALL_NOW") {
-    return false;
-  }
-
   return true;
 }
 
@@ -201,9 +196,11 @@ exports.handler = async function (event) {
       };
     }
 
-    const actionType = String(actionRow.action_type || "").trim().toUpperCase();
+    const gatewayContext = String(
+        actionRow.gateway_context || ""
+    ).trim().toUpperCase();
 
-    if (actionType !== "CALL_NOW") {
+    if (gatewayContext !== "INITIAL_RESPONSE_GATEWAY") {
         if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
             return {
                 statusCode: 200,
@@ -257,7 +254,7 @@ exports.handler = async function (event) {
       };
     }
 
-    if (!validateActionRowForCallNow(actionRow)) {
+    if (!validateActiveGatewayRow(actionRow)) {
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -301,7 +298,7 @@ exports.handler = async function (event) {
     if (event.httpMethod === "POST") {
     const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
         
-      if (!validateActionRowForCallNow(freshActionRow)) {
+      if (!validateActiveGatewayRow(freshActionRow)) {
         return {
           statusCode: 200,
           headers: noCacheHeaders,
