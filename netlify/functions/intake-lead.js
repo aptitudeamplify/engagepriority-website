@@ -559,9 +559,7 @@ const smsPayload = {
   to: assignedAgent.agent_phone,
   message:
     `New EngagePriority lead assigned.\n\n` +
-    `Call now: ${actionLinks.CALL_NOW.public_url}\n` +
-    `Call later: ${actionLinks.ACK_LATER.public_url}\n` +
-    `Reassign: ${actionLinks.REASSIGN.public_url}`
+    `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
 };
 
 console.log("intake_before_sms_send", {
@@ -855,7 +853,7 @@ async function generateLeadId(sheets) {
 }
 
 async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
-  const actionTypes = ["CALL_NOW", "ACK_LATER", "REASSIGN"];
+  const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
   const created_ts_utc = new Date().toISOString();
 
@@ -882,7 +880,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
   const results = {};
   const rowsToInsert = [];
 
-  for (const action_type of actionTypes) {
+  for (const gateway_context of gatewayContexts) {
     let short_code;
     let attempts = 0;
 
@@ -899,12 +897,12 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
     }
 
     if (!short_code) {
-      throw new Error(`Failed to generate unique short_code for ${action_type} after 3 attempts`);
+      throw new Error(`Failed to generate unique short_code for ${gateway_context} after 3 attempts`);
     }
 
     const public_url = `https://engagepriority.com/a/${short_code}`;
 
-    results[action_type] = {
+    results[gateway_context] = {
       short_code,
       token: short_code,
       public_url
@@ -913,7 +911,8 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
     rowsToInsert.push([
       short_code,
       public_url,
-      action_type,
+      gateway_context,
+      "",
       lead_id,
       client.client_id,
       client.lead_data_spreadsheet_id,
