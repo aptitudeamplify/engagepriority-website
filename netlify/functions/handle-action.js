@@ -204,15 +204,47 @@ exports.handler = async function (event) {
     const actionType = String(actionRow.action_type || "").trim().toUpperCase();
 
     if (actionType !== "CALL_NOW") {
-      const data = await processAction(shortCode);
+        if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
+            return {
+                statusCode: 200,
+                headers: noCacheHeaders,
+                body: errorPage("Link already used or expired")
+            };
+        }
 
-      if (data.status !== "SUCCESS") {
-        return {
-          statusCode: 200,
-          headers: noCacheHeaders,
-          body: errorPage("Link expired or invalid")
-        };
-      }
+        if (String(actionRow.used_ts_utc || "").trim()) {
+            return {
+                statusCode: 200,
+                headers: noCacheHeaders,
+                body: errorPage("Link already used or expired")
+            };
+        }
+
+        if (isExpired(actionRow.expires_ts_utc)) {
+            return {
+                statusCode: 200,
+                headers: noCacheHeaders,
+                body: errorPage("Link already used or expired")
+            };
+        }
+
+        const claimedTsUtc = new Date().toISOString();
+
+        await claimActionLinkForDispatch(
+            sheets,
+            actionRow,
+            claimedTsUtc
+        );
+
+        const data = await processAction(shortCode);
+
+        if (!data.ok) {
+            return {
+                statusCode: 200,
+                headers: noCacheHeaders,
+                body: errorPage("Link expired or invalid")
+            };
+        }
 
       return {
         statusCode: 200,
