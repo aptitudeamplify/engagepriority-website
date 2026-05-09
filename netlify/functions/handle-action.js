@@ -85,10 +85,35 @@ async function lookupActionLinkMapRow(sheets, shortCode) {
     range: "ActionLinkMap!A1:O10000"
   });
 
-  const rows = rowsToObjects(res.data.values || []);
+  const rawRows = res.data.values || [];
+  const rows = rowsToObjects(rawRows);
 
-  return rows.find(row => {
+  const foundIndex = rows.findIndex(row => {
     return String(row.short_code || "").trim() === String(shortCode || "").trim();
+  });
+
+  if (foundIndex === -1) {
+    return null;
+  }
+
+  return {
+    ...rows[foundIndex],
+    _sheet_row_number: foundIndex + 2
+  };
+}
+
+async function claimActionLinkForDispatch(sheets, actionRow, claimedTsUtc) {
+  if (!actionRow?._sheet_row_number) {
+    throw new Error("Cannot claim action link without sheet row number.");
+  }
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: `ActionLinkMap!K${actionRow._sheet_row_number}`,
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[claimedTsUtc]]
+    }
   });
 }
 
@@ -133,6 +158,10 @@ function validateActionRowForCallNow(actionRow) {
   }
 
   if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
+    return false;
+  }
+
+  if (String(actionRow.used_ts_utc || "").trim()) {
     return false;
   }
 
@@ -244,6 +273,14 @@ exports.handler = async function (event) {
         };
       }
 
+    const claimedTsUtc = new Date().toISOString();
+
+    await claimActionLinkForDispatch(
+        sheets,
+        freshActionRow,
+        claimedTsUtc
+    );
+
     const data = await processAction(shortCode);
       if (!data.ok) {
         return {
@@ -305,3 +342,4 @@ exports.handler = async function (event) {
     };
   }
 };
+
