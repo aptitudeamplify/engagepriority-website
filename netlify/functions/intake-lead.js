@@ -933,7 +933,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
     lead_id,
     client_id: client.client_id,
     assigned_agent_id,
-    action_count: actionTypes.length
+    action_count: gatewayContexts.length
   });
 
   await sheets.spreadsheets.values.append({
