@@ -240,6 +240,49 @@ body: JSON.stringify({ error: "Invalid request" })
 };
 }
 
+const idempotencyKey = buildIdempotencyKey(
+  client.client_id,
+  leadPayload.email,
+  leadPayload.phone
+);
+
+const sourceToken = [
+  source_system,
+  source_primary_key_value
+].join("|");
+
+const idempotencyRows = await readSheetRows(
+  sheets,
+  client.lead_data_spreadsheet_id,
+  "Idempotency!A1:H10000"
+);
+
+const duplicateRowIndex = findRowIndexByColumnValue(
+  idempotencyRows,
+  "idempotency_key",
+  idempotencyKey
+);
+
+if (duplicateRowIndex !== -1) {
+  console.log("intake_duplicate_lead", {
+    trace_id,
+    client_id: client.client_id,
+    reason: "DUPLICATE_LEAD"
+  });
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      status: "DUPLICATE_LEAD",
+      trace_id,
+      client: {
+        client_id: client.client_id
+      },
+      message: "Duplicate lead detected. Intake processing stopped."
+    })
+  };
+}
+
 const eligibleAgents = agents.filter(agent => {
 return String(agent.client_id || "").trim() === client.client_id &&
 String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE";
@@ -419,13 +462,27 @@ const row = [
   ""                                     // scenario_ended_ts_utc
 ];
 
-await sheets.spreadsheets.values.append({
+const leadLogAppendResult = await sheets.spreadsheets.values.append({
   spreadsheetId: leadDataSpreadsheetId,
   range: "LeadLog_Active!A1",
   valueInputOption: "RAW",
   requestBody: {
     values: [row]
   }
+});
+
+const leadLogUpdatedRange = leadLogAppendResult.data.updates?.updatedRange || "";
+const leadLogRowMatch = leadLogUpdatedRange.match(/![A-Z]+(\d+):/);
+const leadLogRowNumber = leadLogRowMatch ? leadLogRowMatch[1] : "";
+
+await appendLeadIndexRow({
+  sheets,
+  spreadsheetId: leadDataSpreadsheetId,
+  lead_id: leadId,
+  leadlog_row: leadLogRowNumber,
+  client_id: client.client_id,
+  created_timestamp: nowUtc,
+  last_updated_timestamp: nowUtc
 });
 
 timing.sheets_write_leadlog_ms = Date.now() - t0;
@@ -462,6 +519,16 @@ await sheets.spreadsheets.values.append({
   requestBody: {
     values: [reminderRow]
   }
+});
+
+await appendIdempotencyRow({
+  sheets,
+  spreadsheetId: leadDataSpreadsheetId,
+  idempotency_key: idempotencyKey,
+  client_id: client.client_id,
+  source_token: sourceToken,
+  first_seen_timestamp: nowUtc,
+  lead_id: leadId
 });
 
 timing.sheets_write_reminderqueue_ms = Date.now() - t0;
@@ -858,6 +925,74 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
   });
 
   return results;
+}
+
+function buildIdempotencyKey(clientId, email, phone) {
+  return [
+    String(clientId || "").trim(),
+    String(email || "").trim().toLowerCase(),
+    String(phone || "").trim()
+  ].join("|");
+}
+
+function findRowIndexByColumnValue(rows, columnName, value) {
+  const headers = rows[0] || [];
+  const columnIndex = headers.indexOf(columnName);
+
+  if (columnIndex === -1) {
+    throw new Error(`Missing required column: ${columnName}`);
+  }
+
+  return rows.findIndex((row, index) => {
+    return index > 0 && String(row[columnIndex] || "").trim() === String(value || "").trim();
+  });
+}
+
+async function readSheetRows(sheets, spreadsheetId, range) {
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range
+  });
+
+  return res.data.values || [];
+}
+
+async function appendIdempotencyRow({ sheets, spreadsheetId, idempotency_key, client_id, source_token, first_seen_timestamp, lead_id }) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "Idempotency!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        idempotency_key,
+        client_id,
+        source_token,
+        first_seen_timestamp,
+        "",
+        lead_id,
+        "ACTIVE",
+        ""
+      ]]
+    }
+  });
+}
+
+async function appendLeadIndexRow({ sheets, spreadsheetId, lead_id, leadlog_row, client_id, created_timestamp, last_updated_timestamp }) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "LeadIndex!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        lead_id,
+        leadlog_row,
+        client_id,
+        created_timestamp,
+        last_updated_timestamp,
+        "ACTIVE"
+      ]]
+    }
+  });
 }
 
 function normalizeWebsiteLead(payload) {
