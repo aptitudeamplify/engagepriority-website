@@ -1,7 +1,10 @@
 const { google } = require("googleapis");
 
-const MAKE_AGENT_RESPONSE_WEBHOOK =
-  process.env.MAKE_AGENT_RESPONSE_WEBHOOK_URL;
+const MAKE_INITIAL_RESPONSE_WEBHOOK =
+  process.env.MAKE_INITIAL_RESPONSE_WEBHOOK_URL;
+
+const MAKE_OUTCOME_RESPONSE_WEBHOOK =
+  process.env.MAKE_OUTCOME_RESPONSE_WEBHOOK_URL;
 
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 
@@ -131,16 +134,35 @@ async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
   });
 }
 
-async function processAction(shortCode, selectedAction) {
-  const response = await fetch(MAKE_AGENT_RESPONSE_WEBHOOK, {
+async function processAction({
+  shortCode,
+  selectedAction,
+  gatewayContext
+}) {
+
+  let webhookUrl = null;
+
+  if (gatewayContext === "INITIAL_RESPONSE_GATEWAY") {
+    webhookUrl = MAKE_INITIAL_RESPONSE_WEBHOOK;
+  } else if (gatewayContext === "OUTCOME_GATEWAY") {
+    webhookUrl = MAKE_OUTCOME_RESPONSE_WEBHOOK;
+  }
+
+  if (!webhookUrl) {
+    throw new Error(`Unsupported gateway context: ${gatewayContext}`);
+  }
+
+  const response = await fetch(webhookUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-    short_code: shortCode,
-    selected_action: selectedAction,
-    action_trigger_source: "ACTION_GATEWAY_BUTTON"
+      short_code: shortCode,
+      gateway_context: gatewayContext,
+      selected_action: selectedAction,
+      action_trigger_source: "ACTION_GATEWAY_BUTTON",
+      agent_action_ts_utc: new Date().toISOString()
     })
   });
 
@@ -201,7 +223,10 @@ exports.handler = async function (event) {
         actionRow.gateway_context || ""
     ).trim().toUpperCase();
 
-    if (gatewayContext !== "INITIAL_RESPONSE_GATEWAY") {
+    if (
+    gatewayContext !== "INITIAL_RESPONSE_GATEWAY" &&
+    gatewayContext !== "OUTCOME_GATEWAY"
+    ) {
         if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
             return {
                 statusCode: 200,
@@ -246,10 +271,11 @@ exports.handler = async function (event) {
             };
         }
 
-        const data = await processAction(
+        const data = await processAction({
             shortCode,
-            storedSelectedAction
-        );
+            selectedAction: storedSelectedAction,
+            gatewayContext
+        });
 
         if (!data.ok) {
             return {
@@ -326,7 +352,7 @@ exports.handler = async function (event) {
 
        const allowedActions = [
         "CALL_NOW",
-        "ACK_LATER",
+        "REMIND_ME_5_MIN",
         "REASSIGN",
         "NO_ANSWER",
         "CONTACTED_SET_APPOINTMENT",
@@ -359,10 +385,12 @@ exports.handler = async function (event) {
         claimedTsUtc
     );
 
-    const data = await processAction(
+    const data = await processAction({
         shortCode,
-        selectedAction
-    );
+        selectedAction,
+        gatewayContext
+    });
+
       if (!data.ok) {
         return {
           statusCode: 200,
@@ -398,6 +426,54 @@ exports.handler = async function (event) {
       };
     }
 
+if (gatewayContext === "OUTCOME_GATEWAY") {
+
+  return {
+    statusCode: 200,
+    headers: noCacheHeaders,
+    body: page(
+      "Lead Outcome",
+      `<div style="max-width:420px; margin:0 auto; text-align:left; border:1px solid #ddd; border-radius:16px; padding:24px; box-shadow:0 4px 14px rgba(0,0,0,0.08);">
+
+        <div style="text-align:center; margin-bottom:20px;">
+          <div style="font-size:14px; color:#666; margin-bottom:6px;">Lead Outcome</div>
+          <h1 style="font-size:26px; margin:0;">${escapeHtml(name)}</h1>
+        </div>
+
+        <div style="margin:22px 0; text-align:center;">
+          <div style="font-size:13px; color:#666; margin-bottom:6px;">Phone</div>
+          <div style="font-size:28px; font-weight:bold;">${escapeHtml(phone)}</div>
+        </div>
+
+        <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=CONTACTED_SET_APPOINTMENT" style="margin-top:24px;">
+          <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:0; border-radius:12px; cursor:pointer; background:#111; color:#fff;">
+            Contacted - Appointment Set
+          </button>
+        </form>
+
+        <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=CONTACTED_NOT_INTERESTED" style="margin-top:12px;">
+          <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
+            Contacted - Not Interested
+          </button>
+        </form>
+
+        <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=NO_ANSWER" style="margin-top:12px;">
+          <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
+            No Answer
+          </button>
+        </form>
+
+        <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=REASSIGN" style="margin-top:12px;">
+          <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
+            Reassign
+          </button>
+        </form>
+
+      </div>`
+    )
+  };
+}
+
     return {
       statusCode: 200,
       headers: noCacheHeaders,
@@ -420,9 +496,9 @@ exports.handler = async function (event) {
             </button>
           </form>
             
-          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=ACK_LATER" style="margin-top:12px;">
+          <form method="POST" action="/.netlify/functions/handle-action?short_code=${escapeHtml(shortCode)}&selected_action=REMIND_ME_5_MIN" style="margin-top:12px;">
             <button type="submit" style="width:100%; font-size:18px; padding:14px 18px; border:1px solid #ccc; border-radius:12px; cursor:pointer; background:#fff; color:#111;">
-              Acknowledge / Later
+              Remind Me In 5 Minutes
             </button>
           </form>
 
