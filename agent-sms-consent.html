@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent SMS Consent | EngagePriority</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f7fa;
+            color: #111827;
+            margin: 0;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 720px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 32px;
+        }
+
+        p {
+            line-height: 1.6;
+        }
+
+        .field {
+            margin-bottom: 24px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="tel"] {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            margin-top: 10px;
+        }
+
+        .checkbox-container input {
+            margin-top: 4px;
+        }
+
+        .consent-text {
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .links {
+            margin-top: 24px;
+            font-size: 14px;
+        }
+
+        .links a {
+            color: #2563eb;
+            text-decoration: none;
+        }
+
+        .links a:hover {
+            text-decoration: underline;
+        }
+
+        button {
+            margin-top: 32px;
+            background: #111827;
+            color: white;
+            border: none;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1f2937;
+        }
+
+        .confirmation {
+            display: none;
+            margin-top: 24px;
+            padding: 16px;
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            border-radius: 8px;
+            color: #065f46;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+
+        <h1>Agent SMS Consent</h1>
+
+        <p>
+            This page is used for operational SMS enrollment for EngagePriority agent notifications.
+        </p>
+
+        <form id="consentForm">
+
+            <div class="field">
+                <label for="agent_name">Agent Name</label>
+                <input type="text" id="agent_name" name="agent_name" />
+            </div>
+
+            <div class="field">
+                <label for="agent_email">Agent Email</label>
+                <input type="email" id="agent_email" name="agent_email" />
+            </div>
+
+            <div class="field">
+                <label for="agent_phone">Agent Mobile Phone Number</label>
+                <input type="tel" id="agent_phone" name="agent_phone" />
+            </div>
+
+            <div class="checkbox-container">
+                <input type="checkbox" id="sms_consent" name="sms_consent" />
+
+                <div class="consent-text">
+                    I agree to receive operational SMS notifications from EngagePriority related to lead assignments, reminders, and account workflow alerts. Message frequency varies based on assigned lead activity. Message and data rates may apply. Reply STOP to opt out. Reply HELP for help. Mobile information and SMS opt-in consent data will not be shared with third parties or affiliates for promotional or marketing purposes.
+                </div>
+            </div>
+
+            <div class="links">
+                <a href="privacy.html">Privacy Policy</a>
+                |
+                <a href="terms.html">Terms and Conditions</a>
+            </div>
+
+            <button type="submit">
+                Submit Consent
+            </button>
+
+        </form>
+
+        <div class="confirmation" id="confirmationMessage">
+            Consent form submitted successfully.
+        </div>
+
+    </div>
+
+    <script>
+        document.getElementById("consentForm").addEventListener("submit", function(event) {
+            event.preventDefault();
+
+            document.getElementById("confirmationMessage").style.display = "block";
+        });
+    </script>
+
+</body>
+</html>
