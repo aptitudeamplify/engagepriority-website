@@ -224,9 +224,10 @@ exports.handler = async function (event) {
     ).trim().toUpperCase();
 
     if (
-    gatewayContext !== "INITIAL_RESPONSE_GATEWAY" &&
-    gatewayContext !== "OUTCOME_GATEWAY"
-    ) {
+        gatewayContext !== "INITIAL_RESPONSE_GATEWAY" &&
+        gatewayContext !== "OUTCOME_GATEWAY" &&
+        gatewayContext !== "ADMIN_ESCALATION_GATEWAY"
+      ) {
         if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
             return {
                 statusCode: 200,
@@ -425,6 +426,47 @@ exports.handler = async function (event) {
         )
       };
     }
+
+if (gatewayContext === "ADMIN_ESCALATION_GATEWAY") {
+  const assignedAgentId = String(
+    actionRow.assigned_agent_id ||
+    leadRow.assigned_agent_id ||
+    ""
+  ).trim();
+
+  return {
+    statusCode: 200,
+    headers: noCacheHeaders,
+    body: page(
+      "Administrator Review",
+      `<div style="max-width:420px; margin:0 auto; text-align:left; border:1px solid #ddd; border-radius:16px; padding:24px; box-shadow:0 4px 14px rgba(0,0,0,0.08);">
+
+        <div style="text-align:center; margin-bottom:20px;">
+          <div style="font-size:14px; color:#666; margin-bottom:6px;">Administrator Review</div>
+          <h1 style="font-size:26px; margin:0;">${escapeHtml(name)}</h1>
+        </div>
+
+        <div style="margin:22px 0; text-align:center;">
+          <div style="font-size:13px; color:#666; margin-bottom:6px;">Phone</div>
+          <div style="font-size:28px; font-weight:bold;">${escapeHtml(phone)}</div>
+        </div>
+
+        <div style="margin:18px 0; padding:14px; background:#f6f6f6; border-radius:10px; font-size:15px; line-height:1.4;">
+          This lead was escalated for administrator review.
+        </div>
+
+        <div style="margin:18px 0; font-size:14px; color:#555;">
+          <strong>Assigned Agent:</strong> ${escapeHtml(assignedAgentId || "Not available")}
+        </div>
+
+        <a href="tel:${escapeHtml(phone)}" style="display:block; width:100%; box-sizing:border-box; text-align:center; font-size:22px; padding:16px 20px; border:0; border-radius:12px; cursor:pointer; background:#111; color:#fff; text-decoration:none; margin-top:24px;">
+          Call Lead
+        </a>
+
+      </div>`
+    )
+  };
+}    
 
 if (gatewayContext === "OUTCOME_GATEWAY") {
 
