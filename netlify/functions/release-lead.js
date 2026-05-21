@@ -59,6 +59,9 @@ exports.handler = async (event, context) => {
     release_id
   });
 
+  const nowUtc =
+    new Date().toISOString();
+
   const credentials = JSON.parse(
     process.env.GOOGLE_SERVICE_ACCOUNT
   );
@@ -397,6 +400,37 @@ exports.handler = async (event, context) => {
     leadlog_row_number: leadLogRowNumber
   });
 
+  const claimResult =
+    await claimReleaseQueueByReleaseId({
+      sheets,
+      spreadsheetId: SHEET_ID,
+      release_id,
+      nowUtc
+    });
+
+  if (!claimResult.claimed) {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        status: claimResult.status,
+        release_id,
+        client_id: clientId,
+        lead_id: leadId,
+        routing_state_updated: false,
+        downstream_writes_enabled: false,
+        message: claimResult.message
+      })
+    };
+  }
+
+  console.log("release_queue_claimed", {
+    release_id,
+    client_id: clientId,
+    lead_id: leadId,
+    dispatch_claimed_ts_utc: claimResult.dispatch_claimed_ts_utc,
+    release_attempts: claimResult.release_attempts
+  });
+
   const agentsRes =
     await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
@@ -412,8 +446,25 @@ exports.handler = async (event, context) => {
   const agents =
     rowsToObjects(agentsRes.data.values || []);
 
+  const routingValues =
+    routingRes.data.values || [];
+
+  const routingHeaders =
+    routingValues[0] || [];
+
   const routingStates =
-    rowsToObjects(routingRes.data.values || []);
+    routingValues.slice(1).map((row, index) => {
+      const obj = {};
+
+      routingHeaders.forEach((header, headerIndex) => {
+        obj[header] = row[headerIndex];
+      });
+
+      obj._row_number = index + 2;
+      obj._row_values = row;
+
+      return obj;
+    });
 
   const eligibleAgents =
     agents.filter(agent => {
@@ -432,12 +483,12 @@ exports.handler = async (event, context) => {
     };
   }
 
-const routingState =
-  routingStates.find(row => {
-    return String(row.client_id || "").trim() === clientId;
-  });
+  const routingState =
+    routingStates.find(row => {
+      return String(row.client_id || "").trim() === clientId;
+    });
 
-if (!routingState) {
+  if (!routingState) {
     return {
       statusCode: 500,
       body: JSON.stringify({
@@ -477,6 +528,16 @@ if (!routingState) {
       routing_pointer: routingPointer
     });
 
+  await updateRoutingStateAfterReleaseAssignment({
+    sheets,
+    spreadsheetId: SHEET_ID,
+    routingHeaders,
+    routingState,
+    routingPointerAfter: assignmentResult.routing_pointer_after,
+    assignedAgentId: assignmentResult.assigned_agent_id,
+    nowUtc
+  });
+
   console.log("release_assignment_computed", {
     release_id,
     client_id: clientId,
@@ -494,16 +555,23 @@ if (!routingState) {
   return {
     statusCode: 200,
     body: JSON.stringify({
-      status: "RELEASE_ROW_ELIGIBLE",
+      status: "RELEASE_CLAIMED_ROUTINGSTATE_UPDATED",
       release_id,
       client_id: clientId,
       lead_id: leadId,
       matched_row_number: matchedRowNumber,
-      release_status: status,
+      release_status_before_claim: status,
+      release_claim: {
+        status: claimResult.status,
+        dispatch_claimed_ts_utc: claimResult.dispatch_claimed_ts_utc,
+        release_attempts: claimResult.release_attempts
+      },
       lead_status: leadStatus,
       leadlog_row_number: leadLogRowNumber,
       trace_id: traceId,
-      assignment: assignmentResult
+      assignment: assignmentResult,
+      routing_state_updated: true,
+      downstream_writes_enabled: false
     })
   };
 };
@@ -607,5 +675,227 @@ function rowsToObjects(rows) {
     });
 
     return obj;
+  });
+}
+
+function getRequiredHeaderIndex(headers, headerName) {
+  const index = headers.indexOf(headerName);
+
+  if (index === -1) {
+    throw new Error(`Missing required header: ${headerName}`);
+  }
+
+  return index;
+}
+
+function columnNumberToLetter(columnNumber) {
+  let temp = columnNumber;
+  let letter = "";
+
+  while (temp > 0) {
+    const remainder = (temp - 1) % 26;
+    letter = String.fromCharCode(65 + remainder) + letter;
+    temp = Math.floor((temp - 1) / 26);
+  }
+
+  return letter;
+}
+
+async function claimReleaseQueueByReleaseId({
+  sheets,
+  spreadsheetId,
+  release_id,
+  nowUtc
+}) {
+  const releaseRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: "ReleaseQueue!A1:Z10000"
+    });
+
+  const values = releaseRes.data.values || [];
+  const headers = values[0] || [];
+  const rows = values.slice(1);
+
+  const releaseIdIndex =
+    getRequiredHeaderIndex(headers, "release_id");
+
+  const statusIndex =
+    getRequiredHeaderIndex(headers, "status");
+
+  const releasedTsIndex =
+    getRequiredHeaderIndex(headers, "released_ts_utc");
+
+  const dispatchClaimedTsIndex =
+    getRequiredHeaderIndex(headers, "dispatch_claimed_ts_utc");
+
+  const releaseAttemptsIndex =
+    headers.indexOf("release_attempts");
+
+  const notesIndex =
+    headers.indexOf("notes");
+
+  const matchedIndex =
+    rows.findIndex(row => {
+      return (
+        String(row[releaseIdIndex] || "").trim() ===
+        String(release_id || "").trim()
+      );
+    });
+
+  if (matchedIndex === -1) {
+    throw new Error(`ReleaseQueue row not found for release_id: ${release_id}`);
+  }
+
+  const rowNumber = matchedIndex + 2;
+  const row = [...rows[matchedIndex]];
+
+  while (row.length < headers.length) {
+    row.push("");
+  }
+
+  const currentStatus =
+    String(row[statusIndex] || "").trim().toUpperCase();
+
+  const releasedTsUtc =
+    String(row[releasedTsIndex] || "").trim();
+
+  const dispatchClaimedTsUtc =
+    String(row[dispatchClaimedTsIndex] || "").trim();
+
+  if (releasedTsUtc || currentStatus === "RELEASED") {
+    return {
+      claimed: false,
+      status: "RELEASE_ALREADY_PROCESSED",
+      message: "ReleaseQueue row is already released."
+    };
+  }
+
+  if (dispatchClaimedTsUtc || currentStatus === "PROCESSING") {
+    return {
+      claimed: false,
+      status: "RELEASE_ALREADY_CLAIMED",
+      message: "ReleaseQueue row is already claimed for processing."
+    };
+  }
+
+  if (
+    currentStatus !== "PENDING" &&
+    currentStatus !== "ACTIVE"
+  ) {
+    return {
+      claimed: false,
+      status: "RELEASE_NOT_ELIGIBLE",
+      message: `ReleaseQueue row is not eligible for claim. Current status: ${currentStatus || "BLANK"}`
+    };
+  }
+
+  row[dispatchClaimedTsIndex] = nowUtc;
+  row[statusIndex] = "PROCESSING";
+
+  let releaseAttempts = null;
+
+  if (releaseAttemptsIndex !== -1) {
+    const previousAttempts =
+      parseInt(row[releaseAttemptsIndex] || "0", 10);
+
+    releaseAttempts =
+      Number.isFinite(previousAttempts)
+        ? previousAttempts + 1
+        : 1;
+
+    row[releaseAttemptsIndex] = releaseAttempts;
+  }
+
+  if (notesIndex !== -1) {
+    const existingNotes =
+      String(row[notesIndex] || "").trim();
+
+    const claimNote =
+      `[${nowUtc}] Netlify release claim accepted; RoutingState milestone only.`;
+
+    row[notesIndex] =
+      existingNotes
+        ? `${existingNotes}\n${claimNote}`
+        : claimNote;
+  }
+
+  const endColumn =
+    columnNumberToLetter(headers.length);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `ReleaseQueue!A${rowNumber}:${endColumn}${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [row]
+    }
+  });
+
+  return {
+    claimed: true,
+    status: "RELEASE_CLAIMED",
+    dispatch_claimed_ts_utc: nowUtc,
+    release_attempts: releaseAttempts
+  };
+}
+
+async function updateRoutingStateAfterReleaseAssignment({
+  sheets,
+  spreadsheetId,
+  routingHeaders,
+  routingState,
+  routingPointerAfter,
+  assignedAgentId,
+  nowUtc
+}) {
+  const routingPointerIndex =
+    getRequiredHeaderIndex(routingHeaders, "routing_pointer");
+
+  const updatedTsIndex =
+    getRequiredHeaderIndex(routingHeaders, "updated_ts_utc");
+
+  const lastAssignedAgentIndex =
+    getRequiredHeaderIndex(routingHeaders, "last_assigned_agent_id");
+
+  const lastAssignmentTimestampIndex =
+    getRequiredHeaderIndex(routingHeaders, "last_assignment_timestamp");
+
+  const rowNumber =
+    routingState._row_number;
+
+  if (!rowNumber) {
+    throw new Error("RoutingState row number missing for update.");
+  }
+
+  const row =
+    [...routingState._row_values];
+
+  while (row.length < routingHeaders.length) {
+    row.push("");
+  }
+
+  row[routingPointerIndex] =
+    routingPointerAfter;
+
+  row[updatedTsIndex] =
+    nowUtc;
+
+  row[lastAssignedAgentIndex] =
+    assignedAgentId;
+
+  row[lastAssignmentTimestampIndex] =
+    nowUtc;
+
+  const endColumn =
+    columnNumberToLetter(routingHeaders.length);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `RoutingState!A${rowNumber}:${endColumn}${rowNumber}`,
+    valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [row]
+    }
   });
 }
