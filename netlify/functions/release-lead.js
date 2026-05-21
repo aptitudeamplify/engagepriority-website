@@ -226,6 +226,84 @@ exports.handler = async (event, context) => {
     };
   }
 
+  const clientsRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Clients!A1:Z10000"
+    });
+
+  const clientRows = clientsRes.data.values || [];
+
+  if (clientRows.length < 2) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Clients table empty"
+      })
+    };
+  }
+
+  const clientHeaders = clientRows[0];
+
+  const clientIdClientIndex =
+    clientHeaders.indexOf("client_id");
+
+  const leadDataSpreadsheetIdIndex =
+    clientHeaders.indexOf("lead_data_spreadsheet_id");
+
+  if (clientIdClientIndex === -1) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Clients table missing client_id column"
+      })
+    };
+  }
+
+  if (leadDataSpreadsheetIdIndex === -1) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Clients table missing lead_data_spreadsheet_id column"
+      })
+    };
+  }
+
+  const clientRow =
+    clientRows.slice(1).find(row => {
+      return (
+        String(row[clientIdClientIndex] || "").trim() === clientId
+      );
+    });
+
+  if (!clientRow) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({
+        error: "Client not found"
+      })
+    };
+  }
+
+  const leadDataSpreadsheetId =
+    String(
+      clientRow[leadDataSpreadsheetIdIndex] || ""
+    ).trim();
+
+  if (!leadDataSpreadsheetId) {
+    return {
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "Client missing lead_data_spreadsheet_id"
+      })
+    };
+  }
+
+  console.log("release_client_resolved", {
+    release_id,
+    client_id: clientId
+  });
+
   console.log("release_row_eligible", {
     release_id,
     status
