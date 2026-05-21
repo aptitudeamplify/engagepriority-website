@@ -304,6 +304,99 @@ exports.handler = async (event, context) => {
     client_id: clientId
   });
 
+  const leadLogRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: leadDataSpreadsheetId,
+      range: "LeadLog_Active!A1:BI10000"
+    });
+
+  const leadLogRows = leadLogRes.data.values || [];
+
+  if (leadLogRows.length < 2) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({
+        error: "LeadLog_Active empty"
+      })
+    };
+  }
+
+  const leadLogHeaders = leadLogRows[0];
+
+  const leadLogLeadIdIndex =
+    leadLogHeaders.indexOf("lead_id");
+
+  const leadLogClientIdIndex =
+    leadLogHeaders.indexOf("client_id");
+
+  const leadStatusIndex =
+    leadLogHeaders.indexOf("lead_status");
+
+  const traceIdIndex =
+    leadLogHeaders.indexOf("trace_id");
+
+  if (
+    leadLogLeadIdIndex === -1 ||
+    leadLogClientIdIndex === -1 ||
+    leadStatusIndex === -1 ||
+    traceIdIndex === -1
+  ) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "LeadLog_Active missing required release columns"
+      })
+    };
+  }
+
+  let leadLogRow = null;
+  let leadLogRowNumber = null;
+
+  for (let index = 1; index < leadLogRows.length; index++) {
+    const row = leadLogRows[index];
+
+    if (
+      String(row[leadLogLeadIdIndex] || "").trim() === leadId &&
+      String(row[leadLogClientIdIndex] || "").trim() === clientId
+    ) {
+      leadLogRow = row;
+      leadLogRowNumber = index + 1;
+      break;
+    }
+  }
+
+  if (!leadLogRow) {
+    return {
+      statusCode: 404,
+      body: JSON.stringify({
+        error: "Held lead not found in LeadLog_Active"
+      })
+    };
+  }
+
+  const leadStatus =
+    String(leadLogRow[leadStatusIndex] || "").trim().toUpperCase();
+
+  const traceId =
+    String(leadLogRow[traceIdIndex] || "").trim();
+
+  if (leadStatus !== "PENDING_RELEASE") {
+    return {
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "Lead is not pending release",
+        lead_status: leadStatus
+      })
+    };
+  }
+
+  console.log("release_held_lead_found", {
+    release_id,
+    client_id: clientId,
+    lead_id: leadId,
+    leadlog_row_number: leadLogRowNumber
+  });
+
   console.log("release_row_eligible", {
     release_id,
     status
@@ -317,7 +410,10 @@ exports.handler = async (event, context) => {
       client_id: clientId,
       lead_id: leadId,
       matched_row_number: matchedRowNumber,
-      release_status: status
+      release_status: status,
+      lead_status: leadStatus,
+      leadlog_row_number: leadLogRowNumber,
+      trace_id: traceId
     })
   };
 };
