@@ -78,7 +78,7 @@ const leadId = await generateLeadId(sheets);
 t0 = Date.now();
 const clientsRes = await sheets.spreadsheets.values.get({
   spreadsheetId: SHEET_ID,
-  range: "Clients!A1:Z1000"
+  range: "Clients!A1:AC1000"
 });
 timing.sheets_read_clients_ms = Date.now() - t0;
 
