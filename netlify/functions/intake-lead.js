@@ -225,6 +225,22 @@ body: JSON.stringify({ error: "Invalid request" })
 
 Object.assign(leadPayload, normalizedLead);
 
+const serviceWindowStatus =
+  getClientServiceWindowStatus(client);
+
+console.log("intake_service_window_status", {
+  trace_id,
+  client_id: client.client_id,
+  is_open: serviceWindowStatus.is_open,
+  release_mode: serviceWindowStatus.release_mode,
+  timezone: serviceWindowStatus.timezone,
+  local_day: serviceWindowStatus.local_day,
+  local_time: serviceWindowStatus.local_time,
+  business_day_start_time: serviceWindowStatus.business_day_start_time,
+  business_day_end_time: serviceWindowStatus.business_day_end_time,
+  business_days_active: serviceWindowStatus.business_days_active
+});
+
 const intakeValidation = validateWebsiteLeadForIntake(leadPayload);
 
 if (intakeValidation.hard_reject) {
@@ -301,6 +317,162 @@ await appendSystemEvent({
         client_id: client.client_id
       },
       message: "Duplicate lead detected. Intake processing stopped."
+    })
+  };
+}
+
+if (
+  !serviceWindowStatus.is_open &&
+  serviceWindowStatus.release_mode === "AT_OPEN"
+) {
+  const nowUtc =
+    new Date().toISOString();
+
+  const leadDataSpreadsheetId =
+    client.lead_data_spreadsheet_id;
+
+  const row = [
+    leadId,                                // lead_id
+    client.client_id,                      // client_id
+    nowUtc,                                // created_timestamp
+    leadPayload.source_system || "",       // source_system
+    leadPayload.source_detail || "",       // source_detail
+    leadPayload.full_name || "",           // full_name
+    leadPayload.email || "",               // email
+    leadPayload.phone || "",               // phone
+    JSON.stringify(leadPayload),           // inbound_payload_json
+    "",                                    // normalized_payload_json
+    "",                                    // hardening_status
+    "",                                    // idempotency_status
+    intakeValidation.validation_status,    // validation_status
+    client.routing_strategy,               // routing_decision
+    "OFF_HOURS_HOLD",                      // routing_reason
+    "",                                    // assigned_agent_id
+    "",                                    // assigned_timestamp
+    "FALSE",                               // contacted_flag
+    "",                                    // contact_timestamp
+    "PENDING_RELEASE",                     // lead_status
+    nowUtc,                                // last_updated_timestamp
+    "Held by Netlify intake because client service window is closed.", // notes
+    trace_id,                              // trace_id
+    "",                                    // reminder_claimed_ts_utc
+    intakeValidation.validation_reason,    // validation_reason
+    String(intakeValidation.spam_score),   // spam_score
+    "",                                    // token_call_now
+    "",                                    // token_ack_later
+    "",                                    // token_reassign
+    "",                                    // token_outcome_contacted
+    "",                                    // token_outcome_no_answer
+    "",                                    // token_outcome_reassign
+    "FALSE",                               // tokens_active
+    "FALSE",                               // acknowledged
+    "",                                    // ack_timestamp
+    "",                                    // ack_agent_id
+    "FALSE",                               // contact_attempt_started
+    "",                                    // contact_attempt_started_ts
+    "",                                    // contact_outcome
+    "FALSE",                               // reassign_requested
+    "",                                    // reassign_requested_ts
+    "",                                    // token_invalidated_ts
+    "",                                    // attempted_agent_ids
+    "0",                                   // reassignment_count
+    "0",                                   // assignment_attempt_count
+    "FALSE",                               // reassignment_pending
+    "",                                    // reassignment_reason
+    "",                                    // reassignment_requested_ts_utc
+    "",                                    // reassigned_from_agent_id
+    "",                                    // last_reassignment_ts_utc
+    "",                                    // assignment_ts_utc
+    "",                                    // reassignment_status
+    "FALSE",                               // admin_escalation_required
+    "",                                    // admin_escalation_ts_utc
+    "",                                    // last_reassignment_reason
+    "0",                                   // non_response_reassignment_count
+    "",                                    // admin_escalation_reason
+    "",                                    // token_contacted_appt_set
+    "",                                    // token_contacted_not_interested
+    "0",                                   // no_answer_attempt_count
+    nowUtc,                                // scenario_started_ts_utc
+    nowUtc                                 // scenario_ended_ts_utc
+  ];
+
+  const leadLogAppendResult =
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: leadDataSpreadsheetId,
+      range: "LeadLog_Active!A1",
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [row]
+      }
+    });
+
+  const leadLogUpdatedRange =
+    leadLogAppendResult.data.updates?.updatedRange || "";
+
+  const leadLogRowMatch =
+    leadLogUpdatedRange.match(/![A-Z]+(\d+):/);
+
+  const leadLogRowNumber =
+    leadLogRowMatch ? leadLogRowMatch[1] : "";
+
+  await appendLeadIndexRow({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    lead_id: leadId,
+    leadlog_row: leadLogRowNumber,
+    client_id: client.client_id,
+    created_timestamp: nowUtc,
+    last_updated_timestamp: nowUtc
+  });
+
+  await appendReleaseQueueRow({
+    sheets,
+    release_id: randomUUID(),
+    client_id: client.client_id,
+    lead_id: leadId,
+    release_due_ts_utc: nowUtc,
+    release_reason: "OFF_HOURS_CLIENT_CLOSED",
+    created_ts_utc: nowUtc,
+    notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`
+  });
+
+  await appendIdempotencyRow({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    idempotency_key: idempotencyKey,
+    client_id: client.client_id,
+    source_token: sourceToken,
+    first_seen_timestamp: nowUtc,
+    lead_id: leadId
+  });
+
+  timing.total_ms =
+    Date.now() - startTotal;
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      status: "INTAKE_HELD_FOR_RELEASE",
+      trace_id,
+      timing,
+      client: {
+        client_id: client.client_id,
+        routing_strategy: client.routing_strategy
+      },
+      lead_preview: {
+        lead_id: leadId,
+        full_name: leadPayload.full_name || null,
+        phone: leadPayload.phone || null,
+        email: leadPayload.email || null
+      },
+      service_window: serviceWindowStatus,
+      lead_status: "PENDING_RELEASE",
+      release_queue_created: true,
+      routing_state_updated: false,
+      action_links_created: false,
+      reminder_created: false,
+      sms_sent: false,
+      message: "Lead held for release because client service window is closed."
     })
   };
 }
@@ -685,6 +857,135 @@ return obj;
 });
 }
 
+function getClientServiceWindowStatus(client, now = new Date()) {
+  const timezone =
+    String(client.primary_timezone || "").trim();
+
+  const businessStart =
+    String(client.business_day_start_time || "").trim();
+
+  const businessEnd =
+    String(client.business_day_end_time || "").trim();
+
+  const activeDays =
+    String(client.business_days_active || "").trim().toUpperCase();
+
+  const offHoursReleaseMode =
+    String(client.off_hours_release_mode || "").trim().toUpperCase();
+
+  if (!timezone) {
+    throw new Error(`Missing primary_timezone for client_id: ${client.client_id}`);
+  }
+
+  if (!businessStart || !businessEnd) {
+    throw new Error(`Missing business hours for client_id: ${client.client_id}`);
+  }
+
+  if (!activeDays) {
+    throw new Error(`Missing business_days_active for client_id: ${client.client_id}`);
+  }
+
+  const localParts =
+    getLocalDateTimeParts(now, timezone);
+
+  const currentDayToken =
+    localParts.weekday.toUpperCase().slice(0, 3);
+
+  const activeDayTokens =
+    activeDays
+      .split("|")
+      .map(day => day.trim().toUpperCase())
+      .filter(Boolean);
+
+  const isActiveDay =
+    activeDayTokens.includes(currentDayToken);
+
+  const currentMinutes =
+    localParts.hour * 60 + localParts.minute;
+
+  const startMinutes =
+    parseBusinessTimeToMinutes(businessStart);
+
+  const endMinutes =
+    parseBusinessTimeToMinutes(businessEnd);
+
+  const isWithinTimeWindow =
+    startMinutes <= endMinutes
+      ? currentMinutes >= startMinutes && currentMinutes < endMinutes
+      : currentMinutes >= startMinutes || currentMinutes < endMinutes;
+
+  const isOpen =
+    isActiveDay && isWithinTimeWindow;
+
+  return {
+    is_open: isOpen,
+    release_mode: offHoursReleaseMode,
+    timezone,
+    local_day: currentDayToken,
+    local_time: `${String(localParts.hour).padStart(2, "0")}:${String(localParts.minute).padStart(2, "0")}`,
+    business_day_start_time: businessStart,
+    business_day_end_time: businessEnd,
+    business_days_active: activeDays
+  };
+}
+
+function getLocalDateTimeParts(date, timezone) {
+  const formatter =
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      weekday: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    });
+
+  const parts =
+    formatter.formatToParts(date);
+
+  const values = {};
+
+  parts.forEach(part => {
+    values[part.type] = part.value;
+  });
+
+  return {
+    weekday: values.weekday,
+    hour: parseInt(values.hour, 10),
+    minute: parseInt(values.minute, 10)
+  };
+}
+
+function parseBusinessTimeToMinutes(value) {
+  const raw =
+    String(value || "").trim();
+
+  const match =
+    raw.match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!match) {
+    throw new Error(`Invalid business time format: ${value}`);
+  }
+
+  const hour =
+    parseInt(match[1], 10);
+
+  const minute =
+    parseInt(match[2], 10);
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    throw new Error(`Invalid business time value: ${value}`);
+  }
+
+  return hour * 60 + minute;
+}
+
 function routeByStrategy({ routing_strategy, agents, routing_pointer }) {
 const normalizedStrategy = String(routing_strategy || "").trim();
 
@@ -1011,6 +1312,46 @@ async function appendLeadIndexRow({ sheets, spreadsheetId, lead_id, leadlog_row,
         created_timestamp,
         last_updated_timestamp,
         "ACTIVE"
+      ]]
+    }
+  });
+}
+
+async function appendReleaseQueueRow({
+  sheets,
+  release_id,
+  client_id,
+  lead_id,
+  release_due_ts_utc,
+  release_reason,
+  created_ts_utc,
+  notes
+}) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "ReleaseQueue!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        release_id,          // release_id
+        client_id,           // client_id
+        lead_id,             // lead_id
+        "",                  // agent_id
+        release_due_ts_utc,  // release_due_ts_utc
+        release_reason,      // release_reason
+        "FALSE",             // contacted_flag
+        "",                  // contact_timestamp
+        "0",                 // followup_attempts
+        "0",                 // escalation_level
+        "",                  // last_notification_timestamp
+        "PENDING",           // status
+        created_ts_utc,      // created_ts_utc
+        "",                  // released_ts_utc
+        "0",                 // release_attempts
+        "",                  // release_result
+        "",                  // assigned_agent_id
+        notes || "",         // notes
+        ""                   // dispatch_claimed_ts_utc
       ]]
     }
   });
