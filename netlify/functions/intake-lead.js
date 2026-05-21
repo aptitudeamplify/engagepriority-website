@@ -938,7 +938,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:O",
+    range: "ActionLinkMap!A:P",
     valueInputOption: "RAW",
     requestBody: {
       values: rowsToInsert
