@@ -397,6 +397,95 @@ exports.handler = async (event, context) => {
     leadlog_row_number: leadLogRowNumber
   });
 
+  const agentsRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Agents!A1:Z10000"
+    });
+
+  const routingRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "RoutingState!A1:Z10000"
+    });
+
+  const agents =
+    rowsToObjects(agentsRes.data.values || []);
+
+  const routingStates =
+    rowsToObjects(routingRes.data.values || []);
+
+  const eligibleAgents =
+    agents.filter(agent => {
+      return (
+        String(agent.client_id || "").trim() === clientId &&
+        String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE"
+      );
+    });
+
+  if (eligibleAgents.length === 0) {
+    return {
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "No active agents available for release"
+      })
+    };
+  }
+
+const routingState =
+  routingStates.find(row => {
+    return String(row.client_id || "").trim() === clientId;
+  });
+
+if (!routingState) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "RoutingState missing for client"
+      })
+    };
+  }
+
+  const routingStrategy =
+    String(clientRow[clientHeaders.indexOf("routing_strategy")] || "").trim();
+
+  if (!routingStrategy) {
+    return {
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "Client missing routing_strategy"
+      })
+    };
+  }
+
+  const routingPointer =
+    parseInt(routingState.routing_pointer || "0", 10);
+
+  if (!Number.isFinite(routingPointer) || routingPointer < 0) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Invalid routing_pointer"
+      })
+    };
+  }
+
+  const assignmentResult =
+    routeByStrategy({
+      routing_strategy: routingStrategy,
+      agents: eligibleAgents,
+      routing_pointer: routingPointer
+    });
+
+  console.log("release_assignment_computed", {
+    release_id,
+    client_id: clientId,
+    lead_id: leadId,
+    assigned_agent_id: assignmentResult.assigned_agent_id,
+    routing_pointer_before: assignmentResult.routing_pointer_before,
+    routing_pointer_after: assignmentResult.routing_pointer_after
+  });
+
   console.log("release_row_eligible", {
     release_id,
     status
@@ -413,7 +502,110 @@ exports.handler = async (event, context) => {
       release_status: status,
       lead_status: leadStatus,
       leadlog_row_number: leadLogRowNumber,
-      trace_id: traceId
+      trace_id: traceId,
+      assignment: assignmentResult
     })
   };
 };
+
+function routeByStrategy({ routing_strategy, agents, routing_pointer }) {
+  const normalizedStrategy = String(routing_strategy || "").trim();
+
+  if (normalizedStrategy === "WEIGHTED_INTERLEAVED") {
+    return routeWeightedInterleaved({
+      agents,
+      routing_pointer
+    });
+  }
+
+  throw new Error(`Unsupported routing_strategy: ${normalizedStrategy}`);
+}
+
+function routeWeightedInterleaved({ agents, routing_pointer }) {
+  const activeAgents = agents.filter(agent => {
+    return String(agent.agent_status || "").trim() === "ACTIVE";
+  });
+
+  if (activeAgents.length === 0) {
+    throw new Error("No ACTIVE agents available for WEIGHTED_INTERLEAVED routing.");
+  }
+
+  const sortedAgents = [...activeAgents].sort((a, b) => {
+    return parseInt(a.priority_slot, 10) - parseInt(b.priority_slot, 10);
+  });
+
+  const weights = sortedAgents.map(agent => {
+    const weight = parseInt(agent.assignment_weight, 10);
+
+    if (!Number.isFinite(weight) || weight <= 0) {
+      throw new Error(`Invalid assignment_weight for agent_id ${agent.agent_id}: ${agent.assignment_weight}`);
+    }
+
+    return weight;
+  });
+
+  const reducedDivisor = weights.reduce((currentGcd, weight) => {
+    return gcd(currentGcd, weight);
+  });
+
+  const remainingCounts = sortedAgents.map((agent, index) => {
+    return {
+      agent,
+      remaining: weights[index] / reducedDivisor
+    };
+  });
+
+  const cycle = [];
+
+  while (remainingCounts.some(item => item.remaining > 0)) {
+    for (const item of remainingCounts) {
+      if (item.remaining > 0) {
+        cycle.push(item.agent);
+        item.remaining -= 1;
+      }
+    }
+  }
+
+  const routingPointerBefore = routing_pointer % cycle.length;
+  const assignedAgent = cycle[routingPointerBefore];
+  const routingPointerAfter =
+    routingPointerBefore + 1 >= cycle.length
+      ? 0
+      : routingPointerBefore + 1;
+
+  return {
+    assigned_agent_id: assignedAgent.agent_id,
+    routing_pointer_before: routingPointerBefore,
+    routing_pointer_after: routingPointerAfter,
+    cycle_length: cycle.length,
+    cycle_preview: cycle.map(agent => agent.agent_id),
+    active_agents_count: activeAgents.length
+  };
+}
+
+function gcd(a, b) {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+
+  while (y !== 0) {
+    const temp = y;
+    y = x % y;
+    x = temp;
+  }
+
+  return x;
+}
+
+function rowsToObjects(rows) {
+  const headers = rows[0] || [];
+
+  return rows.slice(1).map(row => {
+    const obj = {};
+
+    headers.forEach((header, index) => {
+      obj[header] = row[index];
+    });
+
+    return obj;
+  });
+}
