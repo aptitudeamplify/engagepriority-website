@@ -112,13 +112,13 @@ exports.handler = async (event, context) => {
   for (let index = 1; index < rows.length; index++) {
     const row = rows[index];
 
-     if (
-       String(row[releaseIdIndex] || "").trim() === release_id
-     ) {
-       matchedRow = row;
-       matchedRowNumber = index + 1;
-       break;
-     }
+    if (
+      String(row[releaseIdIndex] || "").trim() === release_id
+    ) {
+      matchedRow = row;
+      matchedRowNumber = index + 1;
+      break;
+    }
   }
 
   if (!matchedRow) {
@@ -134,6 +134,12 @@ exports.handler = async (event, context) => {
     release_id,
     matched_row_number: matchedRowNumber
   });
+
+  const clientIdIndex =
+    headers.indexOf("client_id");
+
+  const leadIdIndex =
+    headers.indexOf("lead_id");
 
   const statusIndex =
     headers.indexOf("status");
@@ -159,11 +165,44 @@ exports.handler = async (event, context) => {
     };
   }
 
+  if (clientIdIndex === -1) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Missing client_id column"
+      })
+    };
+  }
+
+  if (leadIdIndex === -1) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        error: "Missing lead_id column"
+      })
+    };
+  }
+  
   const status =
     String(matchedRow[statusIndex] || "").trim().toUpperCase();
 
   const releasedTsUtc =
     String(matchedRow[releasedTsIndex] || "").trim();
+
+  const clientId =
+    String(matchedRow[clientIdIndex] || "").trim();
+
+  const leadId =
+    String(matchedRow[leadIdIndex] || "").trim();
+
+  if (!clientId || !leadId) {
+    return {
+      statusCode: 409,
+      body: JSON.stringify({
+        error: "ReleaseQueue row missing client_id or lead_id"
+      })
+    };
+  }
 
   if (releasedTsUtc || status === "RELEASED") {
     return {
@@ -197,6 +236,8 @@ exports.handler = async (event, context) => {
     body: JSON.stringify({
       status: "RELEASE_ROW_ELIGIBLE",
       release_id,
+      client_id: clientId,
+      lead_id: leadId,
       matched_row_number: matchedRowNumber,
       release_status: status
     })
