@@ -598,6 +598,16 @@ exports.handler = async (event, context) => {
   const smsResult =
     await sendSmsIfEnabled(smsPayload);
 
+  const releaseCompletion =
+    await completeReleaseQueueRow({
+      sheets,
+      spreadsheetId: SHEET_ID,
+      releaseHeaders,
+      releaseRowNumber: matchedRowNumber,
+      assignedAgentId: assignmentResult.assigned_agent_id,
+      nowUtc
+    });
+
   console.log("release_assignment_computed", {
     release_id,
     client_id: clientId,
@@ -649,7 +659,9 @@ exports.handler = async (event, context) => {
       reminderqueue_created: true,
       reminder_queue: reminderQueue,
       sms_payload_preview: smsPayload,
-      sms_send_result: smsResult
+      sms_send_result: smsResult,
+      releasequeue_completed: true,
+      releasequeue_completion: releaseCompletion
     })
   };
 };
@@ -1239,5 +1251,66 @@ async function sendSmsIfEnabled({ to, message }) {
   return {
     sent: true,
     sid: result.sid
+  };
+}
+
+async function completeReleaseQueueRow({
+  sheets,
+  spreadsheetId,
+  releaseHeaders,
+  releaseRowNumber,
+  assignedAgentId,
+  nowUtc
+}) {
+  const statusIndex =
+    getRequiredHeaderIndex(releaseHeaders, "status");
+
+  const releasedTsUtcIndex =
+    getRequiredHeaderIndex(releaseHeaders, "released_ts_utc");
+
+  const releaseResultIndex =
+    getRequiredHeaderIndex(releaseHeaders, "release_result");
+
+  const assignedAgentIdIndex =
+    getRequiredHeaderIndex(releaseHeaders, "assigned_agent_id");
+
+  const updates = [
+    {
+      index: statusIndex,
+      value: "RELEASED"
+    },
+    {
+      index: releasedTsUtcIndex,
+      value: nowUtc
+    },
+    {
+      index: releaseResultIndex,
+      value: "RELEASED_TO_AGENT"
+    },
+    {
+      index: assignedAgentIdIndex,
+      value: assignedAgentId
+    }
+  ];
+
+  for (const update of updates) {
+    const column =
+      columnNumberToLetter(update.index + 1);
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `ReleaseQueue!${column}${releaseRowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[update.value]]
+      }
+    });
+  }
+
+  return {
+    status: "RELEASED",
+    released_ts_utc: nowUtc,
+    release_result: "RELEASED_TO_AGENT",
+    assigned_agent_id: assignedAgentId
   };
 }
