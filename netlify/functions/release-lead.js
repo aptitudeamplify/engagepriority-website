@@ -541,89 +541,142 @@ exports.handler = async (event, context) => {
     throw new Error(`Assigned agent phone not found for agent_id: ${assignmentResult.assigned_agent_id}`);
   }
 
-  await updateRoutingStateAfterReleaseAssignment({
-    sheets,
-    spreadsheetId: SHEET_ID,
-    routingHeaders,
-    routingState,
-    routingPointerAfter: assignmentResult.routing_pointer_after,
-    assignedAgentId: assignmentResult.assigned_agent_id,
-    nowUtc
-  });
+  let downstreamStage =
+    "ROUTINGSTATE_UPDATE";
 
-  await updateLeadLogAfterReleaseAssignment({
-    sheets,
-    spreadsheetId: leadDataSpreadsheetId,
-    leadLogHeaders,
-    leadLogRow,
-    leadLogRowNumber,
-    assignedAgentId: assignmentResult.assigned_agent_id,
-    nowUtc
-  });
-
-  const actionLinks =
-    await createReleaseInitialActionLink({
-      sheets,
-      lead_id: leadId,
-      client,
-      assigned_agent_id: assignmentResult.assigned_agent_id,
-      trace_id: traceId,
-      nowUtc
-    });
-
-  const reminderQueue =
-    await createReleaseReminderQueueRow({
-      sheets,
-      client,
-      lead_id: leadId,
-      assigned_agent_id: assignmentResult.assigned_agent_id,
-      trace_id: traceId,
-      nowUtc
-    });
-
-  const smsPayload = {
-    to: assignedAgent.agent_phone,
-    message:
-      `New EngagePriority lead assigned.\n\n` +
-      `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
-  };
-
-  console.log("release_before_sms_send", {
-    trace_id: traceId,
-    lead_id: leadId,
-    assigned_agent_id: assignmentResult.assigned_agent_id,
-    phone: assignedAgent.agent_phone
-  });
-
+  let actionLinks;
+  let reminderQueue;
+  let smsPayload;
   let smsResult;
+  let releaseCompletion;
 
   try {
-    smsResult =
-      await sendSmsIfEnabled(smsPayload);
-  } catch (smsError) {
-    console.error("release_sms_send_error", {
-      trace_id: traceId,
-      lead_id: leadId,
-      assigned_agent_id: assignmentResult.assigned_agent_id,
-      error: smsError.message
+    downstreamStage =
+      "ROUTINGSTATE_UPDATE";
+
+      await updateRoutingStateAfterReleaseAssignment({
+        sheets,
+        spreadsheetId: SHEET_ID,
+        routingHeaders,
+        routingState,
+        routingPointerAfter: assignmentResult.routing_pointer_after,
+        assignedAgentId: assignmentResult.assigned_agent_id,
+        nowUtc
     });
 
-    smsResult = {
-      sent: false,
-      reason: smsError.message,
-      error: true
+    downstreamStage =
+      "LEADLOG_UPDATE";
+
+      await updateLeadLogAfterReleaseAssignment({
+        sheets,
+        spreadsheetId: leadDataSpreadsheetId,
+        leadLogHeaders,
+        leadLogRow,
+        leadLogRowNumber,
+        assignedAgentId: assignmentResult.assigned_agent_id,
+        nowUtc
+    });
+
+    downstreamStage =
+      "ACTIONLINK_CREATE";
+
+    actionLinks =
+      await createReleaseInitialActionLink({
+        sheets,
+        lead_id: leadId,
+        client,
+        assigned_agent_id: assignmentResult.assigned_agent_id,
+        trace_id: traceId,
+        nowUtc
+        });
+
+    downstreamStage =
+      "REMINDERQUEUE_CREATE";
+
+    reminderQueue =
+      await createReleaseReminderQueueRow({
+        sheets,
+        client,
+        lead_id: leadId,
+        assigned_agent_id: assignmentResult.assigned_agent_id,
+        trace_id: traceId,
+        nowUtc
+        });
+
+    downstreamStage =
+      "SMS_SEND";
+
+    smsPayload = {
+        to: assignedAgent.agent_phone,
+        message:
+        `New EngagePriority lead assigned.\n\n` +
+        `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
+    };
+
+    console.log("release_before_sms_send", {
+        trace_id: traceId,
+        lead_id: leadId,
+        assigned_agent_id: assignmentResult.assigned_agent_id,
+        phone: assignedAgent.agent_phone
+    });
+
+    try {
+      smsResult =
+        await sendSmsIfEnabled(smsPayload);
+    } catch (smsError) {
+        console.error("release_sms_send_error", {
+          trace_id: traceId,
+          lead_id: leadId,
+          assigned_agent_id: assignmentResult.assigned_agent_id,
+          error: smsError.message
+        });
+
+        smsResult = {
+        sent: false,
+        reason: smsError.message,
+        error: true
+        };
+    }
+
+    downstreamStage =
+      "RELEASEQUEUE_COMPLETE";
+
+    releaseCompletion =
+      await completeReleaseQueueRow({
+        sheets,
+        spreadsheetId: SHEET_ID,
+        releaseHeaders,
+        releaseRowNumber: matchedRowNumber,
+        assignedAgentId: assignmentResult.assigned_agent_id,
+        nowUtc
+        });
+
+  } catch (downstreamError) {
+    const failure =
+      await markReleaseQueueFailed({
+        sheets,
+        spreadsheetId: SHEET_ID,
+        releaseHeaders,
+        releaseRowNumber: matchedRowNumber,
+        failedStage: downstreamStage,
+        errorMessage: downstreamError.message,
+        nowUtc
+      });
+
+    return {
+      statusCode: 500,
+      body: JSON.stringify({
+        status: "RELEASE_FAILED",
+        release_id,
+        client_id: clientId,
+        lead_id: leadId,
+        trace_id: traceId,
+        failed_stage: downstreamStage,
+        error: downstreamError.message,
+        failure
+      })
     };
   }
-
-  const releaseCompletion =
-    await completeReleaseQueueRow({
-      sheets,
-      spreadsheetId: SHEET_ID,
-      releaseHeaders,
-      releaseRowNumber: matchedRowNumber,
-      assignedAgentId: assignmentResult.assigned_agent_id,
-      nowUtc
-    });
 
   console.log("release_assignment_computed", {
     release_id,
@@ -1351,5 +1404,85 @@ async function completeReleaseQueueRow({
     released_ts_utc: nowUtc,
     release_result: "RELEASED_TO_AGENT",
     assigned_agent_id: assignedAgentId
+  };
+}
+
+async function markReleaseQueueFailed({
+  sheets,
+  spreadsheetId,
+  releaseHeaders,
+  releaseRowNumber,
+  failedStage,
+  errorMessage,
+  nowUtc
+}) {
+  const statusIndex =
+    getRequiredHeaderIndex(releaseHeaders, "status");
+
+  const releaseResultIndex =
+    getRequiredHeaderIndex(releaseHeaders, "release_result");
+
+  const notesIndex =
+    releaseHeaders.indexOf("notes");
+
+  const failedResult =
+    `FAILED_${failedStage}`;
+
+  const updates = [
+    {
+      index: statusIndex,
+      value: "RELEASE_FAILED"
+    },
+    {
+      index: releaseResultIndex,
+      value: failedResult
+    }
+  ];
+
+  for (const update of updates) {
+    const column =
+      columnNumberToLetter(update.index + 1);
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `ReleaseQueue!${column}${releaseRowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[update.value]]
+      }
+    });
+  }
+
+  if (notesIndex !== -1) {
+    const column =
+      columnNumberToLetter(notesIndex + 1);
+
+    const existingNotesRes =
+      await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `ReleaseQueue!${column}${releaseRowNumber}`
+      });
+
+    const existingNotes =
+      existingNotesRes.data.values?.[0]?.[0] || "";
+
+    const appendedNotes =
+      `${existingNotes}\n[${nowUtc}] Release failed at ${failedStage}: ${errorMessage}`.trim();
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `ReleaseQueue!${column}${releaseRowNumber}`,
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [[appendedNotes]]
+      }
+    });
+  }
+
+  return {
+    status: "RELEASE_FAILED",
+    release_result: failedResult,
+    failed_stage: failedStage,
+    error_message: errorMessage
   };
 }
