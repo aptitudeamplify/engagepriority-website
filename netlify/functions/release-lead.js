@@ -308,6 +308,14 @@ exports.handler = async (event, context) => {
     };
   }
 
+  const client =
+    {};
+
+  clientHeaders.forEach((header, index) => {
+    client[header] =
+      clientRow[index];
+  });
+
   console.log("release_client_resolved", {
     release_id,
     client_id: clientId
