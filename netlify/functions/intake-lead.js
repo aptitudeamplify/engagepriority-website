@@ -1072,13 +1072,34 @@ x = temp;
 return x;
 }
 
+const SMS_COMPLIANCE_FOOTER =
+  "\n\nReply STOP to opt out. Reply HELP for help.";
+
+function appendSmsComplianceFooter(message) {
+  const normalizedMessage =
+    String(message || "");
+
+  if (
+    normalizedMessage.includes("Reply STOP to opt out.") ||
+    normalizedMessage.includes("Reply HELP for help.")
+  ) {
+    return normalizedMessage;
+  }
+
+  return `${normalizedMessage}${SMS_COMPLIANCE_FOOTER}`;
+}
+
 async function sendSmsIfEnabled({ to, message }) {
   const enabled = String(process.env.ENABLE_SMS_SEND || "").toLowerCase() === "true";
+
+  const finalMessage =
+    appendSmsComplianceFooter(message);
 
   if (!enabled) {
     return {
       sent: false,
-      reason: "SMS sending disabled (ENABLE_SMS_SEND != true)"
+      reason: "SMS sending disabled (ENABLE_SMS_SEND != true)",
+      final_message: finalMessage
     };
   }
 
@@ -1093,14 +1114,15 @@ async function sendSmsIfEnabled({ to, message }) {
   const client = twilio(accountSid, authToken);
 
   const result = await client.messages.create({
-    body: message,
+    body: finalMessage,
     from,
     to
   });
 
   return {
     sent: true,
-    sid: result.sid
+    sid: result.sid,
+    final_message: finalMessage
   };
 }
 
