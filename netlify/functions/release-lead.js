@@ -641,7 +641,7 @@ exports.handler = async (event, context) => {
       trace_id: traceId,
       assignment: assignmentResult,
       routing_state_updated: true,
-      downstream_writes_enabled: false,
+      downstream_writes_enabled: true,
       leadlog_updated: true,
       leadlog_update: {
         lead_status: "NEW",
