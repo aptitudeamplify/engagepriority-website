@@ -538,6 +538,16 @@ exports.handler = async (event, context) => {
     nowUtc
   });
 
+  await updateLeadLogAfterReleaseAssignment({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    leadLogHeaders,
+    leadLogRow,
+    leadLogRowNumber,
+    assignedAgentId: assignmentResult.assigned_agent_id,
+    nowUtc
+  });
+
   console.log("release_assignment_computed", {
     release_id,
     client_id: clientId,
@@ -571,7 +581,19 @@ exports.handler = async (event, context) => {
       trace_id: traceId,
       assignment: assignmentResult,
       routing_state_updated: true,
-      downstream_writes_enabled: false
+      downstream_writes_enabled: false,
+      leadlog_updated: true,
+      leadlog_update: {
+        lead_status: "NEW",
+        assigned_agent_id: assignmentResult.assigned_agent_id,
+        assigned_timestamp: nowUtc,
+        assignment_ts_utc: nowUtc,
+        assignment_attempt_count: 1,
+        last_updated_timestamp: nowUtc,
+        routing_reason: leadLogHeaders.includes("routing_reason")
+          ? "RELEASE_FROM_HOLD"
+          : null
+      }
     })
   };
 };
@@ -894,6 +916,79 @@ async function updateRoutingStateAfterReleaseAssignment({
     spreadsheetId,
     range: `RoutingState!A${rowNumber}:${endColumn}${rowNumber}`,
     valueInputOption: "USER_ENTERED",
+    requestBody: {
+      values: [row]
+    }
+  });
+}
+
+async function updateLeadLogAfterReleaseAssignment({
+  sheets,
+  spreadsheetId,
+  leadLogHeaders,
+  leadLogRow,
+  leadLogRowNumber,
+  assignedAgentId,
+  nowUtc
+}) {
+  const leadStatusIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "lead_status");
+
+  const assignedAgentIdIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "assigned_agent_id");
+
+  const assignedTimestampIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "assigned_timestamp");
+
+  const assignmentTsUtcIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "assignment_ts_utc");
+
+  const assignmentAttemptCountIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "assignment_attempt_count");
+
+  const lastUpdatedTimestampIndex =
+    getRequiredHeaderIndex(leadLogHeaders, "last_updated_timestamp");
+
+  const routingReasonIndex =
+    leadLogHeaders.indexOf("routing_reason");
+
+  const row =
+    [...leadLogRow];
+
+  while (row.length < leadLogHeaders.length) {
+    row.push("");
+  }
+
+  row[leadStatusIndex] =
+    "NEW";
+
+  row[assignedAgentIdIndex] =
+    assignedAgentId;
+
+  row[assignedTimestampIndex] =
+    nowUtc;
+
+  row[assignmentTsUtcIndex] =
+    nowUtc;
+
+  row[assignmentAttemptCountIndex] =
+    "1";
+
+  row[lastUpdatedTimestampIndex] =
+    nowUtc;
+
+  if (routingReasonIndex !== -1) {
+    row[routingReasonIndex] =
+      "RELEASE_FROM_HOLD";
+  }
+
+  const endColumn =
+    columnNumberToLetter(leadLogHeaders.length);
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `LeadLog_Active!A${leadLogRowNumber}:${endColumn}${leadLogRowNumber}`,
+    valueInputOption: "RAW",
     requestBody: {
       values: [row]
     }
