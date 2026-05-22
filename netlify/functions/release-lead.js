@@ -100,6 +100,9 @@ exports.handler = async (event, context) => {
 
   const headers = rows[0];
 
+  const releaseHeaders =
+    headers;
+
   const releaseIdIndex =
     headers.indexOf("release_id");
 
