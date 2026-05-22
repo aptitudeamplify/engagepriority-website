@@ -1,4 +1,5 @@
 const { google } = require("googleapis");
+const twilio = require("twilio");
 const { randomBytes } = require("crypto");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
@@ -530,6 +531,16 @@ exports.handler = async (event, context) => {
       routing_pointer: routingPointer
     });
 
+  const assignedAgent =
+    eligibleAgents.find(agent => {
+      return String(agent.agent_id || "").trim() ===
+        String(assignmentResult.assigned_agent_id || "").trim();
+    });
+
+  if (!assignedAgent || !assignedAgent.agent_phone) {
+    throw new Error(`Assigned agent phone not found for agent_id: ${assignmentResult.assigned_agent_id}`);
+  }
+
   await updateRoutingStateAfterReleaseAssignment({
     sheets,
     spreadsheetId: SHEET_ID,
@@ -569,6 +580,23 @@ exports.handler = async (event, context) => {
       trace_id: traceId,
       nowUtc
     });
+
+  const smsPayload = {
+    to: assignedAgent.agent_phone,
+    message:
+      `New EngagePriority lead assigned.\n\n` +
+      `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
+  };
+
+  console.log("release_before_sms_send", {
+    trace_id: traceId,
+    lead_id: leadId,
+    assigned_agent_id: assignmentResult.assigned_agent_id,
+    phone: assignedAgent.agent_phone
+  });
+
+  const smsResult =
+    await sendSmsIfEnabled(smsPayload);
 
   console.log("release_assignment_computed", {
     release_id,
@@ -619,7 +647,9 @@ exports.handler = async (event, context) => {
       actionlink_created: true,
       action_links: actionLinks,
       reminderqueue_created: true,
-      reminder_queue: reminderQueue
+      reminder_queue: reminderQueue,
+      sms_payload_preview: smsPayload,
+      sms_send_result: smsResult
     })
   };
 };
@@ -1169,5 +1199,45 @@ async function createReleaseReminderQueueRow({
     active_monitoring: true,
     next_action_due_ts_utc: nextActionDue,
     next_action_type: "REMINDER_1"
+  };
+}
+
+async function sendSmsIfEnabled({ to, message }) {
+  const enabled =
+    String(process.env.ENABLE_SMS_SEND || "").toLowerCase() === "true";
+
+  if (!enabled) {
+    return {
+      sent: false,
+      reason: "SMS sending disabled (ENABLE_SMS_SEND != true)"
+    };
+  }
+
+  const accountSid =
+    process.env.TWILIO_ACCOUNT_SID;
+
+  const authToken =
+    process.env.TWILIO_AUTH_TOKEN;
+
+  const from =
+    process.env.TWILIO_FROM_PHONE;
+
+  if (!accountSid || !authToken || !from) {
+    throw new Error("Missing Twilio environment variables.");
+  }
+
+  const client =
+    twilio(accountSid, authToken);
+
+  const result =
+    await client.messages.create({
+      body: message,
+      from,
+      to
+    });
+
+  return {
+    sent: true,
+    sid: result.sid
   };
 }
