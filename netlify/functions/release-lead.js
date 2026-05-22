@@ -560,6 +560,16 @@ exports.handler = async (event, context) => {
       nowUtc
     });
 
+  const reminderQueue =
+    await createReleaseReminderQueueRow({
+      sheets,
+      client,
+      lead_id: leadId,
+      assigned_agent_id: assignmentResult.assigned_agent_id,
+      trace_id: traceId,
+      nowUtc
+    });
+
   console.log("release_assignment_computed", {
     release_id,
     client_id: clientId,
@@ -607,7 +617,9 @@ exports.handler = async (event, context) => {
           : null
       },
       actionlink_created: true,
-      action_links: actionLinks
+      action_links: actionLinks,
+      reminderqueue_created: true,
+      reminder_queue: reminderQueue
     })
   };
 };
@@ -1108,5 +1120,54 @@ async function createReleaseInitialActionLink({
       token: short_code,
       public_url
     }
+  };
+}
+
+async function createReleaseReminderQueueRow({
+  sheets,
+  client,
+  lead_id,
+  assigned_agent_id,
+  trace_id,
+  nowUtc
+}) {
+  const reminderDelayMinutes =
+    parseInt(client.reminder_1_delay_minutes, 10);
+
+  if (!Number.isFinite(reminderDelayMinutes) || reminderDelayMinutes <= 0) {
+    throw new Error(`Invalid reminder_1_delay_minutes for client_id: ${client.client_id}`);
+  }
+
+  const nextActionDue =
+    new Date(new Date(nowUtc).getTime() + reminderDelayMinutes * 60000).toISOString();
+
+  const reminderRow = [
+    trace_id,
+    client.client_id,
+    lead_id,
+    "",
+    client.lead_data_spreadsheet_id,
+    assigned_agent_id,
+    "TRUE",
+    nextActionDue,
+    "REMINDER_1",
+    "",
+    "",
+    ""
+  ];
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "ReminderQueue!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [reminderRow]
+    }
+  });
+
+  return {
+    active_monitoring: true,
+    next_action_due_ts_utc: nextActionDue,
+    next_action_type: "REMINDER_1"
   };
 }
