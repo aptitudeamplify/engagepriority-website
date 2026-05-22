@@ -595,8 +595,25 @@ exports.handler = async (event, context) => {
     phone: assignedAgent.agent_phone
   });
 
-  const smsResult =
-    await sendSmsIfEnabled(smsPayload);
+  let smsResult;
+
+  try {
+    smsResult =
+      await sendSmsIfEnabled(smsPayload);
+  } catch (smsError) {
+    console.error("release_sms_send_error", {
+      trace_id: traceId,
+      lead_id: leadId,
+      assigned_agent_id: assignmentResult.assigned_agent_id,
+      error: smsError.message
+    });
+
+    smsResult = {
+      sent: false,
+      reason: smsError.message,
+      error: true
+    };
+  }
 
   const releaseCompletion =
     await completeReleaseQueueRow({
