@@ -1253,7 +1253,7 @@ async function sendSmsIfEnabled({ to, message }) {
     String(process.env.ENABLE_SMS_SEND || "").toLowerCase() === "true";
 
   const finalMessage =
-    appendSmsComplianceFooter(message);  
+    appendSmsComplianceFooter(message);
 
   if (!enabled) {
     return {
