@@ -1,6 +1,8 @@
 const { google } = require("googleapis");
+const { randomBytes } = require("crypto");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
+const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 
 exports.handler = async (event, context) => {
 
@@ -548,6 +550,16 @@ exports.handler = async (event, context) => {
     nowUtc
   });
 
+  const actionLinks =
+    await createReleaseInitialActionLink({
+      sheets,
+      lead_id: leadId,
+      client,
+      assigned_agent_id: assignmentResult.assigned_agent_id,
+      trace_id: traceId,
+      nowUtc
+    });
+
   console.log("release_assignment_computed", {
     release_id,
     client_id: clientId,
@@ -593,7 +605,9 @@ exports.handler = async (event, context) => {
         routing_reason: leadLogHeaders.includes("routing_reason")
           ? "RELEASE_FROM_HOLD"
           : null
-      }
+      },
+      actionlink_created: true,
+      action_links: actionLinks
     })
   };
 };
@@ -993,4 +1007,106 @@ async function updateLeadLogAfterReleaseAssignment({
       values: [row]
     }
   });
+}
+
+function generateShortCode(length = 6) {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+  const bytes =
+    randomBytes(length);
+
+  let shortCode =
+    "";
+
+  for (let i = 0; i < length; i++) {
+    shortCode +=
+      alphabet[bytes[i] % alphabet.length];
+  }
+
+  return shortCode;
+}
+
+async function createReleaseInitialActionLink({
+  sheets,
+  lead_id,
+  client,
+  assigned_agent_id,
+  trace_id,
+  nowUtc
+}) {
+  const gateway_context =
+    "INITIAL_RESPONSE_GATEWAY";
+
+  const created_ts_utc =
+    nowUtc;
+
+  const existingRes =
+    await sheets.spreadsheets.values.get({
+      spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+      range: "ActionLinkMap!A1:N1000"
+    });
+
+  const existingRows =
+    existingRes.data.values || [];
+
+  const existingShortCodes =
+    new Set(existingRows.slice(1).map(row => row[0]));
+
+  let short_code;
+  let attempts = 0;
+
+  while (attempts < 3) {
+    const candidate =
+      generateShortCode();
+
+    if (!existingShortCodes.has(candidate)) {
+      short_code =
+        candidate;
+      break;
+    }
+
+    attempts++;
+  }
+
+  if (!short_code) {
+    throw new Error("Failed to generate unique short_code for release INITIAL_RESPONSE_GATEWAY after 3 attempts");
+  }
+
+  const public_url =
+    `https://engagepriority.com/a/${short_code}`;
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: "ActionLinkMap!A:P",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        short_code,
+        public_url,
+        gateway_context,
+        "",
+        lead_id,
+        client.client_id,
+        client.lead_data_spreadsheet_id,
+        assigned_agent_id,
+        "",
+        "TRUE",
+        created_ts_utc,
+        "",
+        "",
+        "",
+        "",
+        trace_id
+      ]]
+    }
+  });
+
+  return {
+    INITIAL_RESPONSE_GATEWAY: {
+      short_code,
+      token: short_code,
+      public_url
+    }
+  };
 }
