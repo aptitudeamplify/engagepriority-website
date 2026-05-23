@@ -436,6 +436,23 @@ if (
     notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`
   });
 
+  await appendLeadLifecycleEvent({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    event_id: randomUUID(),
+    event_ts_utc: nowUtc,
+    client_id: client.client_id,
+    lead_id: leadId,
+    trace_id,
+    event_type: "LEAD_HELD_AFTER_HOURS",
+    event_stage: "INTAKE",
+    event_source: "NETLIFY",
+    assigned_agent_id: "",
+    gateway_context: "",
+    selected_action: "",
+    notes: "Held after hours; release queued"
+  });
+
   await appendIdempotencyRow({
     sheets,
     spreadsheetId: leadDataSpreadsheetId,
@@ -468,6 +485,8 @@ if (
       service_window: serviceWindowStatus,
       lead_status: "PENDING_RELEASE",
       release_queue_created: true,
+      lifecycle_event_created: true,
+      lifecycle_event_type: "LEAD_HELD_AFTER_HOURS",
       routing_state_updated: false,
       action_links_created: false,
       reminder_created: false,
@@ -1299,6 +1318,45 @@ async function readSheetRows(sheets, spreadsheetId, range) {
   });
 
   return res.data.values || [];
+}
+
+async function appendLeadLifecycleEvent({
+  sheets,
+  spreadsheetId,
+  event_id,
+  event_ts_utc,
+  client_id,
+  lead_id,
+  trace_id,
+  event_type,
+  event_stage,
+  event_source,
+  assigned_agent_id,
+  gateway_context,
+  selected_action,
+  notes
+}) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "LeadLifecycleLog!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        event_id,
+        event_ts_utc,
+        client_id,
+        lead_id,
+        trace_id,
+        event_type,
+        event_stage,
+        event_source,
+        assigned_agent_id || "",
+        gateway_context || "",
+        selected_action || "",
+        notes || ""
+      ]]
+    }
+  });
 }
 
 async function appendIdempotencyRow({ sheets, spreadsheetId, idempotency_key, client_id, source_token, first_seen_timestamp, lead_id }) {

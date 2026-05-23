@@ -1,6 +1,6 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
-const { randomBytes } = require("crypto");
+const { randomBytes, randomUUID } = require("crypto");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -662,7 +662,43 @@ exports.handler = async (event, context) => {
         nowUtc
         });
 
+    downstreamStage =
+      "LIFECYCLE_RELEASE_EVENT";
+
+    await appendLeadLifecycleEvent({
+      sheets,
+      spreadsheetId: leadDataSpreadsheetId,
+      event_id: randomUUID(),
+      event_ts_utc: nowUtc,
+      client_id: clientId,
+      lead_id: leadId,
+      trace_id: traceId,
+      event_type: "LEAD_RELEASED",
+      event_stage: "RELEASE",
+      event_source: "NETLIFY",
+      assigned_agent_id: assignmentResult.assigned_agent_id,
+      gateway_context: "INITIAL_RESPONSE_GATEWAY",
+      selected_action: "",
+      notes: "Released from after-hours hold to assigned agent"
+    });
+
   } catch (downstreamError) {
+      if (downstreamStage === "LIFECYCLE_RELEASE_EVENT") {
+        return {
+          statusCode: 500,
+          body: JSON.stringify({
+            status: "RELEASE_LIFECYCLE_EVENT_FAILED",
+            release_id,
+            client_id: clientId,
+            lead_id: leadId,
+            trace_id: traceId,
+            failed_stage: downstreamStage,
+            error: downstreamError.message,
+            releasequeue_completed: true,
+            releasequeue_completion: releaseCompletion
+          })
+        };
+      }
     const failure =
       await markReleaseQueueFailed({
         sheets,
@@ -742,7 +778,9 @@ exports.handler = async (event, context) => {
       sms_payload_preview: smsPayload,
       sms_send_result: smsResult,
       releasequeue_completed: true,
-      releasequeue_completion: releaseCompletion
+      releasequeue_completion: releaseCompletion,
+      lifecycle_event_created: true,
+      lifecycle_event_type: "LEAD_RELEASED"
     })
   };
 };
@@ -1416,6 +1454,45 @@ async function completeReleaseQueueRow({
     release_result: "RELEASED_TO_AGENT",
     assigned_agent_id: assignedAgentId
   };
+}
+
+async function appendLeadLifecycleEvent({
+  sheets,
+  spreadsheetId,
+  event_id,
+  event_ts_utc,
+  client_id,
+  lead_id,
+  trace_id,
+  event_type,
+  event_stage,
+  event_source,
+  assigned_agent_id,
+  gateway_context,
+  selected_action,
+  notes
+}) {
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: "LeadLifecycleLog!A1",
+    valueInputOption: "RAW",
+    requestBody: {
+      values: [[
+        event_id,
+        event_ts_utc,
+        client_id,
+        lead_id,
+        trace_id,
+        event_type,
+        event_stage,
+        event_source,
+        assigned_agent_id || "",
+        gateway_context || "",
+        selected_action || "",
+        notes || ""
+      ]]
+    }
+  });
 }
 
 async function markReleaseQueueFailed({
