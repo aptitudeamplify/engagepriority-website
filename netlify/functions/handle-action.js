@@ -200,7 +200,19 @@ exports.handler = async function (event) {
      event.queryStringParameters?.short_code ||
      event.path?.split("/").filter(Boolean).pop();
 
+    console.log("gateway_request_received", {
+      short_code: shortCode || "",
+      method: event.httpMethod || "",
+      event_ts_utc: new Date().toISOString()
+    });
+
     if (!shortCode) {
+      console.log("gateway_invalid_request", {
+        reason: "MISSING_SHORT_CODE",
+        method: event.httpMethod || "",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 400,
         headers: noCacheHeaders,
@@ -212,6 +224,13 @@ exports.handler = async function (event) {
     const actionRow = await lookupActionLinkMapRow(sheets, shortCode);
 
     if (!actionRow) {
+      console.log("gateway_lookup_result", {
+        short_code: shortCode,
+        found: false,
+        reason: "SHORT_CODE_NOT_FOUND",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -223,12 +242,36 @@ exports.handler = async function (event) {
         actionRow.gateway_context || ""
     ).trim().toUpperCase();
 
+    console.log("gateway_lookup_result", {
+      short_code: shortCode,
+      found: true,
+      trace_id: actionRow.trace_id || "",
+      lead_id: actionRow.lead_id || "",
+      client_id: actionRow.client_id || "",
+      assigned_agent_id: actionRow.assigned_agent_id || "",
+      gateway_context: gatewayContext,
+      is_active: String(actionRow.is_active || "").trim().toUpperCase(),
+      has_used_ts_utc: Boolean(String(actionRow.used_ts_utc || "").trim()),
+      is_expired: isExpired(actionRow.expires_ts_utc),
+      event_ts_utc: new Date().toISOString()
+    });
+
     if (
         gatewayContext !== "INITIAL_RESPONSE_GATEWAY" &&
         gatewayContext !== "OUTCOME_GATEWAY" &&
         gatewayContext !== "ADMIN_ESCALATION_GATEWAY"
       ) {
         if (String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE") {
+            console.log("gateway_invalid_state", {
+                short_code: shortCode,
+                trace_id: actionRow.trace_id || "",
+                lead_id: actionRow.lead_id || "",
+                client_id: actionRow.client_id || "",
+                gateway_context: gatewayContext,
+                reason: "LINK_INACTIVE",
+                event_ts_utc: new Date().toISOString()
+            });
+
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -237,6 +280,16 @@ exports.handler = async function (event) {
         }
 
         if (String(actionRow.used_ts_utc || "").trim()) {
+            console.log("gateway_invalid_state", {
+                short_code: shortCode,
+                trace_id: actionRow.trace_id || "",
+                lead_id: actionRow.lead_id || "",
+                client_id: actionRow.client_id || "",
+                gateway_context: gatewayContext,
+                reason: "LINK_ALREADY_USED",
+                event_ts_utc: new Date().toISOString()
+            });
+
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -245,6 +298,16 @@ exports.handler = async function (event) {
         }
 
         if (isExpired(actionRow.expires_ts_utc)) {
+            console.log("gateway_invalid_state", {
+                short_code: shortCode,
+                trace_id: actionRow.trace_id || "",
+                lead_id: actionRow.lead_id || "",
+                client_id: actionRow.client_id || "",
+                gateway_context: gatewayContext,
+                reason: "LINK_EXPIRED",
+                event_ts_utc: new Date().toISOString()
+            });
+
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -260,11 +323,31 @@ exports.handler = async function (event) {
             claimedTsUtc
         );
 
+        console.log("gateway_action_claimed", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: actionRow.lead_id || "",
+            client_id: actionRow.client_id || "",
+            gateway_context: gatewayContext,
+            claimed_ts_utc: claimedTsUtc,
+            event_ts_utc: new Date().toISOString()
+        });
+
         const storedSelectedAction = String(
             actionRow.selected_action || ""
         ).trim().toUpperCase();
 
         if (!storedSelectedAction) {
+            console.log("gateway_invalid_state", {
+                short_code: shortCode,
+                trace_id: actionRow.trace_id || "",
+                lead_id: actionRow.lead_id || "",
+                client_id: actionRow.client_id || "",
+                gateway_context: gatewayContext,
+                reason: "MISSING_STORED_SELECTED_ACTION",
+                event_ts_utc: new Date().toISOString()
+            });
+
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -272,10 +355,33 @@ exports.handler = async function (event) {
             };
         }
 
+        console.log("gateway_action_selected", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: actionRow.lead_id || "",
+            client_id: actionRow.client_id || "",
+            gateway_context: gatewayContext,
+            selected_action: storedSelectedAction,
+            selection_source: "STORED_ACTION",
+            event_ts_utc: new Date().toISOString()
+        });
+
         const data = await processAction({
             shortCode,
             selectedAction: storedSelectedAction,
             gatewayContext
+        });
+
+        console.log("gateway_make_handoff_result", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: actionRow.lead_id || "",
+            client_id: actionRow.client_id || "",
+            gateway_context: gatewayContext,
+            selected_action: storedSelectedAction,
+            ok: data.ok,
+            http_status: data.statusCode,
+            event_ts_utc: new Date().toISOString()
         });
 
         if (!data.ok) {
@@ -298,6 +404,22 @@ exports.handler = async function (event) {
     }
 
     if (!validateActiveGatewayRow(actionRow)) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: actionRow.lead_id || "",
+        client_id: actionRow.client_id || "",
+        gateway_context: gatewayContext,
+        reason: String(actionRow.is_active || "").trim().toUpperCase() !== "TRUE"
+          ? "LINK_INACTIVE"
+          : String(actionRow.used_ts_utc || "").trim()
+            ? "LINK_ALREADY_USED"
+            : isExpired(actionRow.expires_ts_utc)
+              ? "LINK_EXPIRED"
+              : "UNKNOWN_INVALID_GATEWAY_ROW",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -310,6 +432,16 @@ exports.handler = async function (event) {
     const clientId = String(actionRow.client_id || "").trim();
 
     if (!leadDataSpreadsheetId || !leadId || !clientId) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        reason: "MISSING_REQUIRED_LINK_IDENTIFIERS",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -320,6 +452,16 @@ exports.handler = async function (event) {
     const leadRow = await lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId);
 
     if (!leadRow) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        reason: "LEAD_ROW_NOT_FOUND",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -331,6 +473,16 @@ exports.handler = async function (event) {
     const name = String(leadRow.full_name || "Lead").trim();
 
     if (!phone) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        reason: "LEAD_PHONE_NOT_AVAILABLE",
+        event_ts_utc: new Date().toISOString()
+      });
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -344,6 +496,16 @@ exports.handler = async function (event) {
         ).trim().toUpperCase();
                 
       if (!selectedAction) {
+        console.log("gateway_invalid_action", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: leadId,
+            client_id: clientId,
+            gateway_context: gatewayContext,
+            reason: "MISSING_ACTION",
+            event_ts_utc: new Date().toISOString()
+        });
+
         return {
             statusCode: 400,
             headers: noCacheHeaders,
@@ -361,6 +523,17 @@ exports.handler = async function (event) {
        ];
 
        if (!allowedActions.includes(selectedAction)) {
+         console.log("gateway_invalid_action", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: leadId,
+            client_id: clientId,
+            gateway_context: gatewayContext,
+            selected_action: selectedAction,
+            reason: "ACTION_NOT_ALLOWED",
+            event_ts_utc: new Date().toISOString()
+         });
+
          return {
             statusCode: 400,
             headers: noCacheHeaders,
@@ -371,6 +544,17 @@ exports.handler = async function (event) {
        const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
 
       if (!validateActiveGatewayRow(freshActionRow)) {
+        console.log("gateway_invalid_state", {
+          short_code: shortCode,
+          trace_id: actionRow.trace_id || "",
+          lead_id: leadId,
+          client_id: clientId,
+          gateway_context: gatewayContext,
+          selected_action: selectedAction,
+          reason: "LINK_INVALID_AT_CLAIM_RECHECK",
+          event_ts_utc: new Date().toISOString()
+        });
+
         return {
           statusCode: 200,
           headers: noCacheHeaders,
@@ -386,10 +570,44 @@ exports.handler = async function (event) {
         claimedTsUtc
     );
 
+    console.log("gateway_action_claimed", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        selected_action: selectedAction,
+        claimed_ts_utc: claimedTsUtc,
+        event_ts_utc: new Date().toISOString()
+    });
+
+    console.log("gateway_action_selected", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        selected_action: selectedAction,
+        selection_source: "GATEWAY_BUTTON",
+        event_ts_utc: new Date().toISOString()
+    });
+
     const data = await processAction({
         shortCode,
         selectedAction,
         gatewayContext
+    });
+
+    console.log("gateway_make_handoff_result", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        selected_action: selectedAction,
+        ok: data.ok,
+        http_status: data.statusCode,
+        event_ts_utc: new Date().toISOString()
     });
 
       if (!data.ok) {
@@ -428,6 +646,16 @@ exports.handler = async function (event) {
     }
 
 if (gatewayContext === "ADMIN_ESCALATION_GATEWAY") {
+  console.log("gateway_rendered", {
+    short_code: shortCode,
+    trace_id: actionRow.trace_id || "",
+    lead_id: leadId,
+    client_id: clientId,
+    gateway_context: gatewayContext,
+    render_state: "ADMIN_ESCALATION_GATEWAY",
+    event_ts_utc: new Date().toISOString()
+  });
+
   const assignedAgentId = String(
     actionRow.assigned_agent_id ||
     leadRow.assigned_agent_id ||
@@ -469,6 +697,16 @@ if (gatewayContext === "ADMIN_ESCALATION_GATEWAY") {
 }    
 
 if (gatewayContext === "OUTCOME_GATEWAY") {
+
+  console.log("gateway_rendered", {
+    short_code: shortCode,
+    trace_id: actionRow.trace_id || "",
+    lead_id: leadId,
+    client_id: clientId,
+    gateway_context: gatewayContext,
+    render_state: "OUTCOME_GATEWAY",
+    event_ts_utc: new Date().toISOString()
+  });
 
   return {
     statusCode: 200,
@@ -516,6 +754,16 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
   };
 }
 
+    console.log("gateway_rendered", {
+      short_code: shortCode,
+      trace_id: actionRow.trace_id || "",
+      lead_id: leadId,
+      client_id: clientId,
+      gateway_context: gatewayContext,
+      render_state: "INITIAL_RESPONSE_GATEWAY",
+      event_ts_utc: new Date().toISOString()
+    });
+
     return {
       statusCode: 200,
       headers: noCacheHeaders,
@@ -558,6 +806,11 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
     };
 
   } catch (err) {
+    console.error("gateway_error", {
+      error_message: err.message,
+      event_ts_utc: new Date().toISOString()
+    });
+
     return {
       statusCode: 500,
       headers: noCacheHeaders,
