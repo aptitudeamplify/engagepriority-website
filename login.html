@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EngagePriority Control Tower Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0f172a;
+      color: #ffffff;
+      margin: 0;
+    }
+
+    .gradient-bg {
+      background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.15) 0%, rgba(15, 23, 42, 1) 70%);
+    }
+
+    .glass-heavy {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #f6c15a, #f0a93a);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(240, 169, 58, 0.45);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+      transform: none;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-blue-500 selection:text-white">
+  <main class="min-h-screen flex items-center justify-center px-4 py-10 gradient-bg">
+    <section class="w-full max-w-md">
+      <div class="mb-8 text-center">
+        <div class="flex justify-center mb-6">
+          <img src="assets/engagepriority-header-logo.png" alt="EngagePriority" class="h-12 w-auto" />
+        </div>
+
+        <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+          CONTROL TOWER
+        </p>
+
+        <h1 class="text-3xl font-bold tracking-tight">
+          Sign in to continue
+        </h1>
+
+        <p class="mt-4 text-sm text-gray-400">
+          Enter your approved email address or phone number to receive a verification code.
+        </p>
+      </div>
+
+      <div class="glass-heavy rounded-2xl p-6 shadow-2xl border border-blue-500/20">
+        <form id="identifierForm" class="space-y-5">
+          <div>
+            <label for="identifier" class="block text-xs font-semibold text-gray-300 uppercase mb-1">
+              Email or Phone
+            </label>
+            <input
+              id="identifier"
+              name="identifier"
+              type="text"
+              autocomplete="username"
+              required
+              class="w-full bg-slate-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition placeholder-gray-500"
+              placeholder="you@company.com or (555) 555-5555"
+            />
+          </div>
+
+          <button id="requestCodeButton" type="submit" class="w-full btn-primary text-white font-bold py-3 rounded-lg">
+            Send Verification Code
+          </button>
+        </form>
+
+        <form id="codeForm" class="hidden space-y-5">
+          <div>
+            <label for="code" class="block text-xs font-semibold text-gray-300 uppercase mb-1">
+              Verification Code
+            </label>
+            <input
+              id="code"
+              name="code"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              required
+              maxlength="6"
+              class="w-full bg-slate-800 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition placeholder-gray-500 text-center tracking-[0.35em] text-xl font-semibold"
+              placeholder="000000"
+            />
+          </div>
+
+          <button id="verifyCodeButton" type="submit" class="w-full btn-primary text-white font-bold py-3 rounded-lg">
+            Verify Code
+          </button>
+
+          <button id="changeIdentifierButton" type="button" class="w-full text-sm text-blue-300 hover:text-blue-200 transition">
+            Use a different email or phone
+          </button>
+        </form>
+
+        <div id="messageBox" class="hidden mt-5 rounded-xl border p-4 text-sm"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const identifierForm = document.getElementById("identifierForm");
+    const codeForm = document.getElementById("codeForm");
+    const identifierInput = document.getElementById("identifier");
+    const codeInput = document.getElementById("code");
+    const requestCodeButton = document.getElementById("requestCodeButton");
+    const verifyCodeButton = document.getElementById("verifyCodeButton");
+    const changeIdentifierButton = document.getElementById("changeIdentifierButton");
+    const messageBox = document.getElementById("messageBox");
+
+    let currentIdentifier = "";
+
+    function showMessage(type, text) {
+      messageBox.classList.remove("hidden");
+      messageBox.textContent = text;
+
+      messageBox.className = "mt-5 rounded-xl border p-4 text-sm";
+
+      if (type === "error") {
+        messageBox.classList.add("border-red-400/30", "bg-red-400/10", "text-red-100");
+        return;
+      }
+
+      messageBox.classList.add("border-emerald-400/30", "bg-emerald-400/10", "text-emerald-100");
+    }
+
+    function hideMessage() {
+      messageBox.classList.add("hidden");
+      messageBox.textContent = "";
+    }
+
+    function setRequestLoading(isLoading) {
+      requestCodeButton.disabled = isLoading;
+      requestCodeButton.textContent = isLoading ? "Sending..." : "Send Verification Code";
+    }
+
+    function setVerifyLoading(isLoading) {
+      verifyCodeButton.disabled = isLoading;
+      verifyCodeButton.textContent = isLoading ? "Verifying..." : "Verify Code";
+    }
+
+    identifierForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      hideMessage();
+
+      currentIdentifier = String(identifierInput.value || "").trim();
+
+      if (!currentIdentifier) {
+        showMessage("error", "Enter your approved email address or phone number.");
+        return;
+      }
+
+      setRequestLoading(true);
+
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-request-code", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            identifier: currentIdentifier
+          })
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (response.status === 429) {
+          showMessage("error", "Too many code requests. Please try again later.");
+          return;
+        }
+
+        if (!response.ok || result.ok === false) {
+          showMessage("error", "The verification request could not be completed. Please try again later.");
+          return;
+        }
+
+        identifierForm.classList.add("hidden");
+        codeForm.classList.remove("hidden");
+        codeInput.value = "";
+        codeInput.focus();
+
+        showMessage("success", result.message || "If this contact is approved, we will send a verification code.");
+      } catch (error) {
+        showMessage("error", "The verification request could not be completed. Please try again later.");
+      } finally {
+        setRequestLoading(false);
+      }
+    });
+
+    codeForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      hideMessage();
+
+      const code = String(codeInput.value || "").replace(/\D/g, "");
+
+      if (code.length !== 6) {
+        showMessage("error", "Enter the 6-digit verification code.");
+        return;
+      }
+
+      setVerifyLoading(true);
+
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-verify-code", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            identifier: currentIdentifier,
+            code
+          })
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (!response.ok || result.ok === false) {
+          showMessage("error", "The code is invalid or expired. Please request a new code.");
+          return;
+        }
+
+        window.location.href = result.redirect_to || "/control-tower";
+      } catch (error) {
+        showMessage("error", "The code could not be verified. Please try again later.");
+      } finally {
+        setVerifyLoading(false);
+      }
+    });
+
+    changeIdentifierButton.addEventListener("click", () => {
+      codeForm.classList.add("hidden");
+      identifierForm.classList.remove("hidden");
+      codeInput.value = "";
+      currentIdentifier = "";
+      hideMessage();
+      identifierInput.focus();
+    });
+  </script>
+</body>
+</html>
