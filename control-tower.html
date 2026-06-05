@@ -784,7 +784,7 @@
     retryButton.addEventListener("click", loadDashboardData);
     drawerCloseButton.addEventListener("click", closeLeadDrawer);
     detailDrawerOverlay.addEventListener("click", (event) => {
-      if (event.target === detailDrawerOverlay) {
+      if (!event.target.closest("aside")) {
         closeLeadDrawer();
       }
     });
