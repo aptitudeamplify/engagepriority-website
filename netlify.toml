@@ -1,4 +1,14 @@
 [[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200
+
+[[redirects]]
+  from = "/control-tower"
+  to = "/control-tower.html"
+  status = 200
+
+[[redirects]]
   from = "/a/:short_code"
   to = "/.netlify/functions/handle-action?short_code=:short_code"
   status = 200
