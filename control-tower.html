@@ -160,10 +160,10 @@
               CONTROL TOWER
             </p>
             <h1 class="text-4xl md:text-5xl font-bold tracking-tight">
-              Lead Response Review Dashboard
+              Lead Response Dashboard
             </h1>
             <p class="mt-4 text-gray-400 max-w-2xl">
-              Read-only visibility into active lead response status and recently closed outcomes.
+              Read-only visibility into active lead response status, reminders, reassignment, escalation, and recent outcomes.
             </p>
           </div>
 
@@ -199,6 +199,26 @@
         </div>
 
         <div id="dashboardContent" class="hidden">
+          <div class="glass-heavy mb-6 rounded-2xl border border-blue-500/20 p-5">
+            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p class="mb-2 text-xs uppercase tracking-[0.18em] text-gray-400">View:</p>
+                <div id="timeFilterControls" class="flex flex-wrap gap-2">
+                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="today">Today</button>
+                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="last_7_days">Last 7 Days</button>
+                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="active_only">Active Only</button>
+                </div>
+              </div>
+
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <p id="focusedStatusText" class="text-sm text-gray-400">Focused status: All</p>
+                <button id="clearStatusFilterButton" type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white">
+                  Clear Status Filter
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div id="summaryCards" class="grid gap-4 md:grid-cols-2 xl:grid-cols-5 mb-8"></div>
 
           <div class="glass-heavy rounded-2xl border border-blue-500/20 overflow-hidden">
@@ -245,48 +265,40 @@
 
         <div class="space-y-6 p-6">
           <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Current status</h3>
+            <h3 class="mb-4 text-lg font-bold">Lead Summary</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
                 <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Assigned Agent</p>
                 <p id="drawerAssignedAgent" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Status</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Current Status</p>
                 <p id="drawerStatus" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Risk</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Risk Level</p>
                 <p id="drawerRisk" class="mt-1 font-semibold text-white">-</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Active Gateway State</p>
-                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-white">-</p>
               </div>
             </div>
           </section>
 
           <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Read-only routing context</h3>
+            <h3 class="mb-4 text-lg font-bold">Enforcement Status</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Current Assigned Agent ID</p>
-                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Next Action</p>
+                <p id="drawerNextAction" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Release-Time Agent ID</p>
-                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Due Timing</p>
+                <p id="drawerDueTiming" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Gateway Context</p>
-                <p id="drawerGatewayContext" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Active Link State</p>
+                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Selected Action</p>
-                <p id="drawerSelectedAction" class="mt-1 font-semibold text-white">-</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Escalation State</p>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Escalation Status</p>
                 <p id="drawerEscalationState" class="mt-1 font-semibold text-white">-</p>
               </div>
               <div>
@@ -297,7 +309,29 @@
           </section>
 
           <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Recent lifecycle events</h3>
+            <h3 class="mb-4 text-lg font-bold">System Context</h3>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Assigned Agent ID</p>
+                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Release-Time Agent ID</p>
+                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Gateway Stage</p>
+                <p id="drawerGatewayContext" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Last Recorded Agent Action</p>
+                <p id="drawerSelectedAction" class="mt-1 font-semibold text-white">-</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="glass rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold">Recent Activity</h3>
             <div id="drawerLifecycleEvents" class="space-y-3"></div>
           </section>
         </div>
@@ -322,15 +356,26 @@
     const visibleCountText = document.getElementById("visibleCountText");
     const detailDrawerOverlay = document.getElementById("detailDrawerOverlay");
     const drawerCloseButton = document.getElementById("drawerCloseButton");
+    const timeFilterControls = document.getElementById("timeFilterControls");
+    const focusedStatusText = document.getElementById("focusedStatusText");
+    const clearStatusFilterButton = document.getElementById("clearStatusFilterButton");
 
     let currentLeads = [];
+    let currentTimeFilter = "today";
+    let currentSummaryFilter = null;
+
+    const timeFilterLabels = {
+      today: "Today",
+      last_7_days: "Last 7 Days",
+      active_only: "Active Only"
+    };
 
     const summaryConfig = [
-      ["awaiting_agent_action", "Awaiting Agent Action"],
-      ["reminder_active", "Reminder Active"],
-      ["reassignment_active", "Reassignment Active"],
-      ["escalated_to_admin", "Escalated to Admin"],
-      ["closed_outcome_recorded", "Closed / Outcome Recorded"]
+      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Needs Agent Action" },
+      { uiKey: "reminder_active", apiKey: "reminder_active", label: "Reminder Active" },
+      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Pending" },
+      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated" },
+      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed" }
     ];
 
     function showAuthenticated() {
@@ -363,6 +408,35 @@
       dataErrorState.classList.remove("hidden");
       refreshButton.disabled = false;
       refreshButton.textContent = "Refresh";
+    }
+
+    function buildDashboardDataUrl() {
+      const params = new URLSearchParams();
+      params.set("time_filter", currentTimeFilter);
+
+      if (currentSummaryFilter) {
+        params.set("summary_filter", currentSummaryFilter);
+      }
+
+      return `/.netlify/functions/control-tower-data?${params.toString()}`;
+    }
+
+    function updateFilterUi() {
+      const timeButtons = timeFilterControls.querySelectorAll("[data-time-filter]");
+
+      timeButtons.forEach((button) => {
+        const isActive = button.dataset.timeFilter === currentTimeFilter;
+        button.classList.toggle("border-blue-400", isActive);
+        button.classList.toggle("bg-blue-500/10", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+
+      const activeSummary = summaryConfig.find(item => item.apiKey === currentSummaryFilter);
+      focusedStatusText.textContent = activeSummary
+        ? `Focused status: ${activeSummary.label}`
+        : "Focused status: All";
+
+      clearStatusFilterButton.disabled = !currentSummaryFilter;
     }
 
     async function checkSession() {
@@ -398,7 +472,7 @@
       closeLeadDrawer();
 
       try {
-        const response = await fetch("/.netlify/functions/control-tower-data", {
+        const response = await fetch(buildDashboardDataUrl(), {
           method: "GET",
           headers: {
             "Accept": "application/json"
@@ -439,11 +513,17 @@
     function renderSummary(summary) {
       summaryCards.innerHTML = "";
 
-      summaryConfig.forEach(([key, label]) => {
-        const value = safeNumber(summary[key]);
+      summaryConfig.forEach(({ uiKey, apiKey, label }) => {
+        const value = safeNumber(summary[uiKey]);
+        const isActive = currentSummaryFilter === apiKey;
 
-        const card = document.createElement("div");
-        card.className = "glass p-5 rounded-2xl";
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = [
+          "glass p-5 rounded-2xl text-left transition hover:border-blue-400/40 hover:bg-blue-500/10",
+          isActive ? "border-blue-400/60 bg-blue-500/10" : ""
+        ].filter(Boolean).join(" ");
+        card.setAttribute("aria-pressed", isActive ? "true" : "false");
 
         const labelElement = document.createElement("p");
         labelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-400 mb-2";
@@ -455,8 +535,16 @@
 
         card.appendChild(labelElement);
         card.appendChild(valueElement);
+        card.addEventListener("click", () => {
+          currentSummaryFilter = currentSummaryFilter === apiKey ? null : apiKey;
+          updateFilterUi();
+          loadDashboardData();
+        });
+
         summaryCards.appendChild(card);
       });
+
+      updateFilterUi();
     }
 
     function renderMeta(meta) {
@@ -486,7 +574,7 @@
       wrapper.className = "p-5 hover:bg-white/[0.02] transition";
 
       const badges = Array.isArray(lead.status?.badges) ? lead.status.badges : [];
-      const riskLabel = textOrDash(lead.risk?.label);
+      const riskLabel = displayRiskLabel(lead.risk?.label);
       const sourceLabel = formatSourceLabel(lead.source);
       const dueText = textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display);
       const riskClass = riskClassFor(riskLabel);
@@ -504,7 +592,7 @@
 
       const statusBadge = document.createElement("span");
       statusBadge.className = "badge";
-      statusBadge.textContent = textOrDash(lead.status?.primary);
+      statusBadge.textContent = displayStatusLabel(lead.status?.primary);
 
       metaWrap.appendChild(received);
       metaWrap.appendChild(statusBadge);
@@ -529,7 +617,7 @@
       leadColumn.appendChild(detailsButton);
 
       const agentColumn = renderInfoColumn("Assigned Agent", textOrDash(lead.assigned_agent?.agent_name));
-      const actionColumn = renderInfoColumn("Next Action", textOrDash(lead.next_action?.label), dueText);
+      const actionColumn = renderInfoColumn("Next Action", displayNextActionLabel(lead.next_action?.label), dueText);
 
       const riskColumn = document.createElement("div");
       const riskLabelElement = document.createElement("p");
@@ -609,13 +697,15 @@
       setText("drawerLeadName", textOrDash(lead.lead_name));
       setText("drawerLeadMeta", `${textOrDash(lead.received_display)} / ${formatSourceLabel(lead.source)}`);
       setText("drawerAssignedAgent", textOrDash(lead.assigned_agent?.agent_name));
-      setText("drawerStatus", textOrDash(lead.status?.primary));
-      setText("drawerRisk", textOrDash(lead.risk?.label));
+      setText("drawerStatus", displayStatusLabel(lead.status?.primary));
+      setText("drawerRisk", displayRiskLabel(lead.risk?.label));
+      setText("drawerNextAction", displayNextActionLabel(lead.next_action?.label));
+      setText("drawerDueTiming", textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display));
       setText("drawerActiveGatewayState", textOrDash(drawer.active_gateway_state));
       setText("drawerCurrentAssignedAgentId", textOrDash(drawer.current_assigned_agent_id));
       setText("drawerReleaseTimeAssignedAgentId", textOrDash(drawer.release_time_assigned_agent_id));
       setText("drawerGatewayContext", textOrDash(drawer.gateway_context));
-      setText("drawerSelectedAction", textOrDash(drawer.selected_action));
+      setText("drawerSelectedAction", displaySelectedActionLabel(drawer.selected_action));
       setText("drawerEscalationState", textOrDash(drawer.escalation_state));
       setText("drawerFinalOutcome", textOrDash(drawer.final_outcome));
       renderLifecycleEvents(lifecycleEvents);
@@ -654,7 +744,7 @@
         meta.textContent = [
           formatDateTime(event.event_ts_utc),
           textOrDash(event.event_stage),
-          textOrDash(event.selected_action)
+          displaySelectedActionLabel(event.selected_action)
         ].filter(value => value && value !== "-").join(" / ") || "-";
 
         item.appendChild(label);
@@ -708,6 +798,41 @@
         .replace(/_/g, " ")
         .toLowerCase()
         .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function displayStatusLabel(value) {
+      const label = textOrDash(value);
+
+      if (label === "Awaiting Agent Action") return "Needs Agent Action";
+      if (label === "Reassignment Active") return "Reassignment Pending";
+      if (label === "Escalated to Admin") return "Escalated";
+      if (label === "No Answer Follow-up") return "No Answer Follow-Up";
+
+      return label;
+    }
+
+    function displayRiskLabel(value) {
+      return textOrDash(value);
+    }
+
+    function displayNextActionLabel(value) {
+      const label = textOrDash(value);
+
+      if (label === "Agent action") return "Agent Action Needed";
+      if (label === "Reminder") return "Reminder Scheduled";
+      if (label === "Reassignment") return "Reassignment Pending";
+      if (label === "Admin review") return "Admin Review Needed";
+      if (label === "Release") return "Scheduled Release";
+
+      return label;
+    }
+
+    function displaySelectedActionLabel(value) {
+      const label = textOrDash(value);
+
+      if (label === "No Answer Follow-up") return "No Answer Follow-Up";
+
+      return label;
     }
 
     function riskClassFor(label) {
@@ -782,6 +907,32 @@
 
     refreshButton.addEventListener("click", loadDashboardData);
     retryButton.addEventListener("click", loadDashboardData);
+    timeFilterControls.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-time-filter]");
+
+      if (!button) {
+        return;
+      }
+
+      const nextTimeFilter = button.dataset.timeFilter;
+
+      if (!Object.prototype.hasOwnProperty.call(timeFilterLabels, nextTimeFilter)) {
+        return;
+      }
+
+      currentTimeFilter = nextTimeFilter;
+      updateFilterUi();
+      loadDashboardData();
+    });
+    clearStatusFilterButton.addEventListener("click", () => {
+      if (!currentSummaryFilter) {
+        return;
+      }
+
+      currentSummaryFilter = null;
+      updateFilterUi();
+      loadDashboardData();
+    });
     drawerCloseButton.addEventListener("click", closeLeadDrawer);
     detailDrawerOverlay.addEventListener("click", (event) => {
       if (!event.target.closest("aside")) {
@@ -794,6 +945,7 @@
       }
     });
 
+    updateFilterUi();
     checkSession();
   </script>
 </body>
