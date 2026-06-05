@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EngagePriority Control Tower</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0f172a;
+      color: #ffffff;
+      margin: 0;
+    }
+
+    .glass {
+      background: rgba(255, 255, 255, 0.03);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .glass-heavy {
+      background: rgba(30, 41, 59, 0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #f6c15a, #f0a93a);
+      transition: all 0.3s ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(240, 169, 58, 0.45);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      transition: all 0.3s ease;
+    }
+
+    .btn-secondary:hover {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+    }
+
+    .btn-primary:disabled,
+    .btn-secondary:disabled {
+      cursor: not-allowed;
+      opacity: 0.7;
+      transform: none;
+      box-shadow: none;
+    }
+  </style>
+</head>
+<body class="antialiased selection:bg-blue-500 selection:text-white">
+  <nav class="fixed w-full z-50 border-b border-white/10 bg-slate-900/80 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="flex items-center justify-between h-20">
+        <div class="flex items-center">
+          <img src="assets/engagepriority-header-logo.png" alt="EngagePriority" class="h-10 w-auto" />
+        </div>
+
+        <button id="logoutButton" type="button" class="btn-secondary text-white px-5 py-2.5 rounded-lg font-semibold text-sm">
+          Sign Out
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="min-h-screen pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-slate-950">
+    <section class="max-w-7xl mx-auto">
+      <div id="loadingState" class="glass-heavy rounded-2xl p-8 text-center">
+        <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+          CONTROL TOWER
+        </p>
+        <h1 class="text-3xl font-bold mb-3">
+          Loading Control Tower...
+        </h1>
+        <p class="text-gray-400">
+          Verifying your session.
+        </p>
+      </div>
+
+      <div id="errorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
+        <p class="text-sm uppercase tracking-[0.25em] text-red-300 font-semibold mb-3">
+          ACCESS REQUIRED
+        </p>
+        <h1 class="text-3xl font-bold mb-3">
+          Please sign in to access the Control Tower.
+        </h1>
+        <p class="text-gray-400 mb-6">
+          Your session is missing, expired, or no longer valid.
+        </p>
+        <a href="/login" class="inline-block btn-primary text-white px-6 py-3 rounded-lg font-bold">
+          Go to Login
+        </a>
+      </div>
+
+      <div id="appShell" class="hidden">
+        <div class="mb-8">
+          <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+            CONTROL TOWER
+          </p>
+          <h1 class="text-4xl md:text-5xl font-bold tracking-tight">
+            Lead Response Review Dashboard
+          </h1>
+          <p class="mt-4 text-gray-400 max-w-2xl">
+            Your authenticated Control Tower session is active. Dashboard data will be added in the next implementation step.
+          </p>
+        </div>
+
+        <div class="grid gap-6 md:grid-cols-3 mb-8">
+          <div class="glass p-6 rounded-2xl">
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Session</p>
+            <p id="sessionStatus" class="text-2xl font-bold">Active</p>
+          </div>
+
+          <div class="glass p-6 rounded-2xl">
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Role</p>
+            <p id="sessionRole" class="text-2xl font-bold">-</p>
+          </div>
+
+          <div class="glass p-6 rounded-2xl">
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Login Channel</p>
+            <p id="loginChannel" class="text-2xl font-bold">-</p>
+          </div>
+        </div>
+
+        <div class="glass-heavy rounded-2xl p-8 border border-blue-500/20">
+          <h2 class="text-2xl font-bold mb-3">
+            Protected placeholder
+          </h2>
+          <p class="text-gray-400 mb-6">
+            This page intentionally does not load lead, lifecycle, dashboard, or client data yet. It only validates that the Control Tower session gate is working.
+          </p>
+
+          <div class="rounded-xl border border-white/10 bg-slate-900 p-5">
+            <p class="text-sm text-gray-400 mb-2">Next planned step</p>
+            <p class="text-white font-semibold">
+              Build the read-only Control Tower dashboard data API after the auth slice is validated.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const loadingState = document.getElementById("loadingState");
+    const errorState = document.getElementById("errorState");
+    const appShell = document.getElementById("appShell");
+    const logoutButton = document.getElementById("logoutButton");
+    const sessionRole = document.getElementById("sessionRole");
+    const loginChannel = document.getElementById("loginChannel");
+
+    function showAuthenticated(session) {
+      loadingState.classList.add("hidden");
+      errorState.classList.add("hidden");
+      appShell.classList.remove("hidden");
+
+      sessionRole.textContent = session.role || "ADMIN";
+      loginChannel.textContent = session.login_channel || "-";
+    }
+
+    function showUnauthenticated() {
+      loadingState.classList.add("hidden");
+      appShell.classList.add("hidden");
+      errorState.classList.remove("hidden");
+    }
+
+    async function checkSession() {
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-session", {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (!response.ok || result.ok !== true || result.authenticated !== true) {
+          window.location.href = "/login";
+          return;
+        }
+
+        showAuthenticated(result.session || {});
+      } catch (error) {
+        showUnauthenticated();
+      }
+    }
+
+    logoutButton.addEventListener("click", async () => {
+      logoutButton.disabled = true;
+      logoutButton.textContent = "Signing out...";
+
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-logout", {
+          method: "POST",
+          headers: {
+            "Accept": "application/json"
+          }
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        window.location.href = result.redirect_to || "/login?status=signed_out";
+      } catch (error) {
+        window.location.href = "/login?status=signed_out";
+      }
+    });
+
+    checkSession();
+  </script>
+</body>
+</html>
