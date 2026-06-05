@@ -101,6 +101,12 @@
       background: rgba(34, 197, 94, 0.12);
       border-color: rgba(34, 197, 94, 0.25);
     }
+
+    .drawer-backdrop {
+      background: rgba(2, 6, 23, 0.72);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
   </style>
 </head>
 <body class="antialiased selection:bg-blue-500 selection:text-white">
@@ -220,6 +226,85 @@
     </section>
   </main>
 
+  <div id="detailDrawerOverlay" class="hidden fixed inset-0 z-[60] drawer-backdrop">
+    <div class="absolute inset-y-0 right-0 flex w-full justify-end">
+      <aside class="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-slate-950 shadow-2xl">
+        <div class="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-6 py-5 backdrop-blur">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-[0.22em] text-blue-300 font-semibold">Lead Detail</p>
+              <h2 id="drawerLeadName" class="mt-2 text-2xl font-bold">-</h2>
+              <p id="drawerLeadMeta" class="mt-1 text-sm text-gray-400">-</p>
+            </div>
+
+            <button id="drawerCloseButton" type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white">
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div class="space-y-6 p-6">
+          <section class="glass rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold">Current status</h3>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Assigned Agent</p>
+                <p id="drawerAssignedAgent" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Status</p>
+                <p id="drawerStatus" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Risk</p>
+                <p id="drawerRisk" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Active Gateway State</p>
+                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-white">-</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="glass rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold">Read-only routing context</h3>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Current Assigned Agent ID</p>
+                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Release-Time Agent ID</p>
+                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Gateway Context</p>
+                <p id="drawerGatewayContext" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Selected Action</p>
+                <p id="drawerSelectedAction" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Escalation State</p>
+                <p id="drawerEscalationState" class="mt-1 font-semibold text-white">-</p>
+              </div>
+              <div>
+                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Final Outcome</p>
+                <p id="drawerFinalOutcome" class="mt-1 font-semibold text-white">-</p>
+              </div>
+            </div>
+          </section>
+
+          <section class="glass rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold">Recent lifecycle events</h3>
+            <div id="drawerLifecycleEvents" class="space-y-3"></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+
   <script>
     const sessionLoadingState = document.getElementById("sessionLoadingState");
     const accessErrorState = document.getElementById("accessErrorState");
@@ -235,6 +320,10 @@
     const emptyState = document.getElementById("emptyState");
     const lastUpdatedText = document.getElementById("lastUpdatedText");
     const visibleCountText = document.getElementById("visibleCountText");
+    const detailDrawerOverlay = document.getElementById("detailDrawerOverlay");
+    const drawerCloseButton = document.getElementById("drawerCloseButton");
+
+    let currentLeads = [];
 
     const summaryConfig = [
       ["awaiting_agent_action", "Awaiting Agent Action"],
@@ -306,6 +395,7 @@
 
     async function loadDashboardData() {
       setDataLoading(true);
+      closeLeadDrawer();
 
       try {
         const response = await fetch("/.netlify/functions/control-tower-data", {
@@ -336,8 +426,10 @@
     }
 
     function renderDashboard(data) {
+      currentLeads = Array.isArray(data.leads) ? data.leads : [];
+
       renderSummary(data.summary || {});
-      renderLeads(Array.isArray(data.leads) ? data.leads : []);
+      renderLeads(currentLeads);
       renderMeta(data.meta || {});
 
       dashboardContent.classList.remove("hidden");
@@ -352,13 +444,17 @@
 
         const card = document.createElement("div");
         card.className = "glass p-5 rounded-2xl";
-        card.innerHTML = `
-          <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2"></p>
-          <p class="text-3xl font-bold"></p>
-        `;
 
-        card.querySelector("p:first-child").textContent = label;
-        card.querySelector("p:last-child").textContent = String(value);
+        const labelElement = document.createElement("p");
+        labelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-400 mb-2";
+        labelElement.textContent = label;
+
+        const valueElement = document.createElement("p");
+        valueElement.className = "text-3xl font-bold";
+        valueElement.textContent = String(value);
+
+        card.appendChild(labelElement);
+        card.appendChild(valueElement);
         summaryCards.appendChild(card);
       });
     }
@@ -380,12 +476,12 @@
 
       emptyState.classList.add("hidden");
 
-      leads.forEach((lead) => {
-        leadList.appendChild(renderLeadRecord(lead));
+      leads.forEach((lead, index) => {
+        leadList.appendChild(renderLeadRecord(lead, index));
       });
     }
 
-    function renderLeadRecord(lead) {
+    function renderLeadRecord(lead, index) {
       const wrapper = document.createElement("article");
       wrapper.className = "p-5 hover:bg-white/[0.02] transition";
 
@@ -395,64 +491,72 @@
       const dueText = textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display);
       const riskClass = riskClassFor(riskLabel);
 
-      wrapper.innerHTML = `
-        <div class="grid gap-5 lg:grid-cols-[1.3fr_1fr_1fr_1fr] lg:items-start">
-          <div>
-            <div class="flex flex-wrap items-center gap-2 mb-2">
-              <span class="text-xs text-gray-500"></span>
-              <span class="badge"></span>
-            </div>
-            <h3 class="text-xl font-bold text-white"></h3>
-            <p class="mt-1 text-sm text-gray-400"></p>
-          </div>
+      const grid = document.createElement("div");
+      grid.className = "grid gap-5 lg:grid-cols-[1.3fr_1fr_1fr_1fr] lg:items-start";
 
-          <div>
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Assigned Agent</p>
-            <p class="font-semibold text-white"></p>
-          </div>
+      const leadColumn = document.createElement("div");
+      const metaWrap = document.createElement("div");
+      metaWrap.className = "flex flex-wrap items-center gap-2 mb-2";
 
-          <div>
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Next Action</p>
-            <p class="font-semibold text-white"></p>
-            <p class="text-sm text-gray-400"></p>
-          </div>
+      const received = document.createElement("span");
+      received.className = "text-xs text-gray-500";
+      received.textContent = textOrDash(lead.received_display);
 
-          <div>
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Risk</p>
-            <span class="badge"></span>
-            <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-400"></div>
-          </div>
-        </div>
-
-        <div class="mt-4 flex flex-wrap gap-2"></div>
-      `;
-
-      const topMeta = wrapper.querySelectorAll(".text-xs.text-gray-500");
-      topMeta[0].textContent = textOrDash(lead.received_display);
-
-      const statusBadge = wrapper.querySelector(".flex.flex-wrap .badge");
+      const statusBadge = document.createElement("span");
+      statusBadge.className = "badge";
       statusBadge.textContent = textOrDash(lead.status?.primary);
 
-      wrapper.querySelector("h3").textContent = textOrDash(lead.lead_name);
-      wrapper.querySelector(".mt-1.text-sm.text-gray-400").textContent = sourceLabel;
+      metaWrap.appendChild(received);
+      metaWrap.appendChild(statusBadge);
 
-      const columns = wrapper.querySelectorAll(".font-semibold.text-white");
-      columns[0].textContent = textOrDash(lead.assigned_agent?.agent_name);
-      columns[1].textContent = textOrDash(lead.next_action?.label);
+      const leadName = document.createElement("h3");
+      leadName.className = "text-xl font-bold text-white";
+      leadName.textContent = textOrDash(lead.lead_name);
 
-      const nextActionDetail = wrapper.querySelectorAll(".text-sm.text-gray-400")[1];
-      nextActionDetail.textContent = dueText;
+      const source = document.createElement("p");
+      source.className = "mt-1 text-sm text-gray-400";
+      source.textContent = sourceLabel;
 
-      const riskBadge = wrapper.querySelector("div:nth-child(4) .badge");
+      const detailsButton = document.createElement("button");
+      detailsButton.type = "button";
+      detailsButton.className = "mt-4 btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white";
+      detailsButton.textContent = "View details";
+      detailsButton.addEventListener("click", () => openLeadDrawer(index));
+
+      leadColumn.appendChild(metaWrap);
+      leadColumn.appendChild(leadName);
+      leadColumn.appendChild(source);
+      leadColumn.appendChild(detailsButton);
+
+      const agentColumn = renderInfoColumn("Assigned Agent", textOrDash(lead.assigned_agent?.agent_name));
+      const actionColumn = renderInfoColumn("Next Action", textOrDash(lead.next_action?.label), dueText);
+
+      const riskColumn = document.createElement("div");
+      const riskLabelElement = document.createElement("p");
+      riskLabelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-500 mb-1";
+      riskLabelElement.textContent = "Risk";
+
+      const riskBadge = document.createElement("span");
+      riskBadge.className = `badge ${riskClass}`;
       riskBadge.textContent = riskLabel;
-      riskBadge.classList.add(riskClass);
 
-      const countContainer = wrapper.querySelector(".mt-3.flex");
+      const countContainer = document.createElement("div");
+      countContainer.className = "mt-3 flex flex-wrap gap-2 text-xs text-gray-400";
       countContainer.appendChild(renderMiniCount("Reminders", lead.counts?.reminder_count));
       countContainer.appendChild(renderMiniCount("Reassignments", lead.counts?.reassignment_count));
       countContainer.appendChild(renderMiniCount("No Answer", lead.counts?.no_answer_attempt_count));
 
-      const badgeContainer = wrapper.lastElementChild;
+      riskColumn.appendChild(riskLabelElement);
+      riskColumn.appendChild(riskBadge);
+      riskColumn.appendChild(countContainer);
+
+      grid.appendChild(leadColumn);
+      grid.appendChild(agentColumn);
+      grid.appendChild(actionColumn);
+      grid.appendChild(riskColumn);
+
+      const badgeContainer = document.createElement("div");
+      badgeContainer.className = "mt-4 flex flex-wrap gap-2";
       badges.forEach((badgeText) => {
         const badge = document.createElement("span");
         badge.className = "badge";
@@ -460,7 +564,111 @@
         badgeContainer.appendChild(badge);
       });
 
+      wrapper.appendChild(grid);
+      wrapper.appendChild(badgeContainer);
+
       return wrapper;
+    }
+
+    function renderInfoColumn(label, value, detail) {
+      const column = document.createElement("div");
+
+      const labelElement = document.createElement("p");
+      labelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-500 mb-1";
+      labelElement.textContent = label;
+
+      const valueElement = document.createElement("p");
+      valueElement.className = "font-semibold text-white";
+      valueElement.textContent = value;
+
+      column.appendChild(labelElement);
+      column.appendChild(valueElement);
+
+      if (detail) {
+        const detailElement = document.createElement("p");
+        detailElement.className = "text-sm text-gray-400";
+        detailElement.textContent = detail;
+        column.appendChild(detailElement);
+      }
+
+      return column;
+    }
+
+    function openLeadDrawer(index) {
+      const lead = currentLeads[index];
+
+      if (!lead) {
+        return;
+      }
+
+      const drawer = lead.drawer || {};
+      const lifecycleEvents = Array.isArray(drawer.recent_lifecycle_events)
+        ? drawer.recent_lifecycle_events
+        : [];
+
+      setText("drawerLeadName", textOrDash(lead.lead_name));
+      setText("drawerLeadMeta", `${textOrDash(lead.received_display)} / ${formatSourceLabel(lead.source)}`);
+      setText("drawerAssignedAgent", textOrDash(lead.assigned_agent?.agent_name));
+      setText("drawerStatus", textOrDash(lead.status?.primary));
+      setText("drawerRisk", textOrDash(lead.risk?.label));
+      setText("drawerActiveGatewayState", textOrDash(drawer.active_gateway_state));
+      setText("drawerCurrentAssignedAgentId", textOrDash(drawer.current_assigned_agent_id));
+      setText("drawerReleaseTimeAssignedAgentId", textOrDash(drawer.release_time_assigned_agent_id));
+      setText("drawerGatewayContext", textOrDash(drawer.gateway_context));
+      setText("drawerSelectedAction", textOrDash(drawer.selected_action));
+      setText("drawerEscalationState", textOrDash(drawer.escalation_state));
+      setText("drawerFinalOutcome", textOrDash(drawer.final_outcome));
+      renderLifecycleEvents(lifecycleEvents);
+
+      detailDrawerOverlay.classList.remove("hidden");
+      document.body.style.overflow = "hidden";
+    }
+
+    function closeLeadDrawer() {
+      detailDrawerOverlay.classList.add("hidden");
+      document.body.style.overflow = "";
+    }
+
+    function renderLifecycleEvents(events) {
+      const container = document.getElementById("drawerLifecycleEvents");
+      container.innerHTML = "";
+
+      if (!events.length) {
+        const empty = document.createElement("p");
+        empty.className = "text-sm text-gray-400";
+        empty.textContent = "No recent lifecycle events available.";
+        container.appendChild(empty);
+        return;
+      }
+
+      events.forEach((event) => {
+        const item = document.createElement("div");
+        item.className = "rounded-xl border border-white/10 bg-white/[0.03] p-4";
+
+        const label = document.createElement("p");
+        label.className = "font-semibold text-white";
+        label.textContent = textOrDash(event.event_label);
+
+        const meta = document.createElement("p");
+        meta.className = "mt-1 text-sm text-gray-400";
+        meta.textContent = [
+          formatDateTime(event.event_ts_utc),
+          textOrDash(event.event_stage),
+          textOrDash(event.selected_action)
+        ].filter(value => value && value !== "-").join(" / ") || "-";
+
+        item.appendChild(label);
+        item.appendChild(meta);
+        container.appendChild(item);
+      });
+    }
+
+    function setText(id, value) {
+      const element = document.getElementById(id);
+
+      if (element) {
+        element.textContent = value;
+      }
     }
 
     function renderMiniCount(label, value) {
@@ -574,6 +782,17 @@
 
     refreshButton.addEventListener("click", loadDashboardData);
     retryButton.addEventListener("click", loadDashboardData);
+    drawerCloseButton.addEventListener("click", closeLeadDrawer);
+    detailDrawerOverlay.addEventListener("click", (event) => {
+      if (event.target === detailDrawerOverlay) {
+        closeLeadDrawer();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeLeadDrawer();
+      }
+    });
 
     checkSession();
   </script>
