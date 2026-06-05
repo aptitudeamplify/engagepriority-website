@@ -192,10 +192,9 @@ exports.handler = async function handler(event) {
       .filter(record => passesTimeFilter(record, timeFilter, todayKey, sevenDaysAgoMs, clientTimezone))
       .filter(record => passesSummaryFilter(record, summaryFilter));
 
-    derivedLeads = sortLeadRecords(derivedLeads);
-
     const summary = buildSummary(derivedLeads);
-    const visibleLeads = derivedLeads.slice(0, RECORD_LIMIT);
+    const sortedPublicLeads = sortLeadRecords(derivedLeads);
+    const visibleLeads = sortedPublicLeads.slice(0, RECORD_LIMIT);
 
     console.log("control_tower_data_response_ready", {
       client_id: clientId,
