@@ -59,6 +59,48 @@
       transform: none;
       box-shadow: none;
     }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 9999px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.06);
+      padding: 0.2rem 0.55rem;
+      font-size: 0.72rem;
+      color: #cbd5e1;
+      white-space: nowrap;
+    }
+
+    .risk-escalated {
+      color: #fecaca;
+      background: rgba(239, 68, 68, 0.12);
+      border-color: rgba(239, 68, 68, 0.25);
+    }
+
+    .risk-overdue {
+      color: #fed7aa;
+      background: rgba(249, 115, 22, 0.12);
+      border-color: rgba(249, 115, 22, 0.25);
+    }
+
+    .risk-needs-action {
+      color: #fde68a;
+      background: rgba(245, 158, 11, 0.12);
+      border-color: rgba(245, 158, 11, 0.25);
+    }
+
+    .risk-on-track {
+      color: #bfdbfe;
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.25);
+    }
+
+    .risk-closed {
+      color: #bbf7d0;
+      background: rgba(34, 197, 94, 0.12);
+      border-color: rgba(34, 197, 94, 0.25);
+    }
   </style>
 </head>
 <body class="antialiased selection:bg-blue-500 selection:text-white">
@@ -78,7 +120,7 @@
 
   <main class="min-h-screen pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-slate-950">
     <section class="max-w-7xl mx-auto">
-      <div id="loadingState" class="glass-heavy rounded-2xl p-8 text-center">
+      <div id="sessionLoadingState" class="glass-heavy rounded-2xl p-8 text-center">
         <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
           CONTROL TOWER
         </p>
@@ -90,7 +132,7 @@
         </p>
       </div>
 
-      <div id="errorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
+      <div id="accessErrorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
         <p class="text-sm uppercase tracking-[0.25em] text-red-300 font-semibold mb-3">
           ACCESS REQUIRED
         </p>
@@ -106,48 +148,72 @@
       </div>
 
       <div id="appShell" class="hidden">
-        <div class="mb-8">
-          <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
-            CONTROL TOWER
-          </p>
-          <h1 class="text-4xl md:text-5xl font-bold tracking-tight">
-            Lead Response Review Dashboard
-          </h1>
-          <p class="mt-4 text-gray-400 max-w-2xl">
-            Your authenticated Control Tower session is active. Dashboard data will be added in the next implementation step.
-          </p>
-        </div>
-
-        <div class="grid gap-6 md:grid-cols-3 mb-8">
-          <div class="glass p-6 rounded-2xl">
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Session</p>
-            <p id="sessionStatus" class="text-2xl font-bold">Active</p>
+        <div class="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+              CONTROL TOWER
+            </p>
+            <h1 class="text-4xl md:text-5xl font-bold tracking-tight">
+              Lead Response Review Dashboard
+            </h1>
+            <p class="mt-4 text-gray-400 max-w-2xl">
+              Read-only visibility into active lead response status and recently closed outcomes.
+            </p>
           </div>
 
-          <div class="glass p-6 rounded-2xl">
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Role</p>
-            <p id="sessionRole" class="text-2xl font-bold">-</p>
-          </div>
-
-          <div class="glass p-6 rounded-2xl">
-            <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2">Login Channel</p>
-            <p id="loginChannel" class="text-2xl font-bold">-</p>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <p id="lastUpdatedText" class="text-sm text-gray-500">
+              Last updated: -
+            </p>
+            <button id="refreshButton" type="button" class="btn-primary text-white px-5 py-3 rounded-lg font-bold text-sm">
+              Refresh
+            </button>
           </div>
         </div>
 
-        <div class="glass-heavy rounded-2xl p-8 border border-blue-500/20">
+        <div id="dataLoadingState" class="glass-heavy rounded-2xl p-8 text-center">
           <h2 class="text-2xl font-bold mb-3">
-            Protected placeholder
+            Loading dashboard...
+          </h2>
+          <p class="text-gray-400">
+            Fetching the latest read-only lead response data.
+          </p>
+        </div>
+
+        <div id="dataErrorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
+          <h2 class="text-2xl font-bold mb-3">
+            Control Tower temporarily unavailable
           </h2>
           <p class="text-gray-400 mb-6">
-            This page intentionally does not load lead, lifecycle, dashboard, or client data yet. It only validates that the Control Tower session gate is working.
+            The dashboard data could not be loaded. Please try refreshing.
           </p>
+          <button id="retryButton" type="button" class="btn-secondary text-white px-5 py-3 rounded-lg font-semibold text-sm">
+            Try Again
+          </button>
+        </div>
 
-          <div class="rounded-xl border border-white/10 bg-slate-900 p-5">
-            <p class="text-sm text-gray-400 mb-2">Next planned step</p>
-            <p class="text-white font-semibold">
-              Build the read-only Control Tower dashboard data API after the auth slice is validated.
-            </p>
+        <div id="dashboardContent" class="hidden">
+          <div id="summaryCards" class="grid gap-4 md:grid-cols-2 xl:grid-cols-5 mb-8"></div>
+
+          <div class="glass-heavy rounded-2xl border border-blue-500/20 overflow-hidden">
+            <div class="flex flex-col gap-2 border-b border-white/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-2xl font-bold">Lead Response Queue</h2>
+                <p class="text-sm text-gray-400">
+                  Showing up to 20 records from the current read-only view.
+                </p>
+              </div>
+              <p id="visibleCountText" class="text-sm text-gray-500"></p>
+            </div>
+
+            <div id="emptyState" class="hidden p-8 text-center">
+              <h3 class="text-xl font-bold mb-2">No leads to show</h3>
+              <p class="text-gray-400">
+                No active leads or leads closed today.
+              </p>
+            </div>
+
+            <div id="leadList" class="divide-y divide-white/10"></div>
           </div>
         </div>
       </div>
@@ -155,26 +221,59 @@
   </main>
 
   <script>
-    const loadingState = document.getElementById("loadingState");
-    const errorState = document.getElementById("errorState");
+    const sessionLoadingState = document.getElementById("sessionLoadingState");
+    const accessErrorState = document.getElementById("accessErrorState");
     const appShell = document.getElementById("appShell");
     const logoutButton = document.getElementById("logoutButton");
-    const sessionRole = document.getElementById("sessionRole");
-    const loginChannel = document.getElementById("loginChannel");
+    const refreshButton = document.getElementById("refreshButton");
+    const retryButton = document.getElementById("retryButton");
+    const dataLoadingState = document.getElementById("dataLoadingState");
+    const dataErrorState = document.getElementById("dataErrorState");
+    const dashboardContent = document.getElementById("dashboardContent");
+    const summaryCards = document.getElementById("summaryCards");
+    const leadList = document.getElementById("leadList");
+    const emptyState = document.getElementById("emptyState");
+    const lastUpdatedText = document.getElementById("lastUpdatedText");
+    const visibleCountText = document.getElementById("visibleCountText");
 
-    function showAuthenticated(session) {
-      loadingState.classList.add("hidden");
-      errorState.classList.add("hidden");
+    const summaryConfig = [
+      ["awaiting_agent_action", "Awaiting Agent Action"],
+      ["reminder_active", "Reminder Active"],
+      ["reassignment_active", "Reassignment Active"],
+      ["escalated_to_admin", "Escalated to Admin"],
+      ["closed_outcome_recorded", "Closed / Outcome Recorded"]
+    ];
+
+    function showAuthenticated() {
+      sessionLoadingState.classList.add("hidden");
+      accessErrorState.classList.add("hidden");
       appShell.classList.remove("hidden");
-
-      sessionRole.textContent = session.role || "ADMIN";
-      loginChannel.textContent = session.login_channel || "-";
     }
 
     function showUnauthenticated() {
-      loadingState.classList.add("hidden");
+      sessionLoadingState.classList.add("hidden");
       appShell.classList.add("hidden");
-      errorState.classList.remove("hidden");
+      accessErrorState.classList.remove("hidden");
+    }
+
+    function setDataLoading(isLoading) {
+      refreshButton.disabled = isLoading;
+      refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
+      dataErrorState.classList.add("hidden");
+
+      if (isLoading) {
+        dataLoadingState.classList.remove("hidden");
+      } else {
+        dataLoadingState.classList.add("hidden");
+      }
+    }
+
+    function showDataError() {
+      dataLoadingState.classList.add("hidden");
+      dashboardContent.classList.add("hidden");
+      dataErrorState.classList.remove("hidden");
+      refreshButton.disabled = false;
+      refreshButton.textContent = "Refresh";
     }
 
     async function checkSession() {
@@ -198,10 +297,254 @@
           return;
         }
 
-        showAuthenticated(result.session || {});
+        showAuthenticated();
+        await loadDashboardData();
       } catch (error) {
         showUnauthenticated();
       }
+    }
+
+    async function loadDashboardData() {
+      setDataLoading(true);
+
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-data", {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (!response.ok || result.ok !== true) {
+          showDataError();
+          return;
+        }
+
+        renderDashboard(result);
+      } catch (error) {
+        showDataError();
+      } finally {
+        setDataLoading(false);
+      }
+    }
+
+    function renderDashboard(data) {
+      renderSummary(data.summary || {});
+      renderLeads(Array.isArray(data.leads) ? data.leads : []);
+      renderMeta(data.meta || {});
+
+      dashboardContent.classList.remove("hidden");
+      dataErrorState.classList.add("hidden");
+    }
+
+    function renderSummary(summary) {
+      summaryCards.innerHTML = "";
+
+      summaryConfig.forEach(([key, label]) => {
+        const value = safeNumber(summary[key]);
+
+        const card = document.createElement("div");
+        card.className = "glass p-5 rounded-2xl";
+        card.innerHTML = `
+          <p class="text-xs uppercase tracking-[0.18em] text-gray-400 mb-2"></p>
+          <p class="text-3xl font-bold"></p>
+        `;
+
+        card.querySelector("p:first-child").textContent = label;
+        card.querySelector("p:last-child").textContent = String(value);
+        summaryCards.appendChild(card);
+      });
+    }
+
+    function renderMeta(meta) {
+      visibleCountText.textContent = `${safeNumber(meta.visible_record_count)} visible records`;
+
+      const updated = formatDateTime(meta.last_updated_ts_utc);
+      lastUpdatedText.textContent = updated ? `Last updated: ${updated}` : "Last updated: -";
+    }
+
+    function renderLeads(leads) {
+      leadList.innerHTML = "";
+
+      if (!leads.length) {
+        emptyState.classList.remove("hidden");
+        return;
+      }
+
+      emptyState.classList.add("hidden");
+
+      leads.forEach((lead) => {
+        leadList.appendChild(renderLeadRecord(lead));
+      });
+    }
+
+    function renderLeadRecord(lead) {
+      const wrapper = document.createElement("article");
+      wrapper.className = "p-5 hover:bg-white/[0.02] transition";
+
+      const badges = Array.isArray(lead.status?.badges) ? lead.status.badges : [];
+      const riskLabel = textOrDash(lead.risk?.label);
+      const sourceLabel = formatSourceLabel(lead.source);
+      const dueText = textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display);
+      const riskClass = riskClassFor(riskLabel);
+
+      wrapper.innerHTML = `
+        <div class="grid gap-5 lg:grid-cols-[1.3fr_1fr_1fr_1fr] lg:items-start">
+          <div>
+            <div class="flex flex-wrap items-center gap-2 mb-2">
+              <span class="text-xs text-gray-500"></span>
+              <span class="badge"></span>
+            </div>
+            <h3 class="text-xl font-bold text-white"></h3>
+            <p class="mt-1 text-sm text-gray-400"></p>
+          </div>
+
+          <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Assigned Agent</p>
+            <p class="font-semibold text-white"></p>
+          </div>
+
+          <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Next Action</p>
+            <p class="font-semibold text-white"></p>
+            <p class="text-sm text-gray-400"></p>
+          </div>
+
+          <div>
+            <p class="text-xs uppercase tracking-[0.18em] text-gray-500 mb-1">Risk</p>
+            <span class="badge"></span>
+            <div class="mt-3 flex flex-wrap gap-2 text-xs text-gray-400"></div>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap gap-2"></div>
+      `;
+
+      const topMeta = wrapper.querySelectorAll(".text-xs.text-gray-500");
+      topMeta[0].textContent = textOrDash(lead.received_display);
+
+      const statusBadge = wrapper.querySelector(".flex.flex-wrap .badge");
+      statusBadge.textContent = textOrDash(lead.status?.primary);
+
+      wrapper.querySelector("h3").textContent = textOrDash(lead.lead_name);
+      wrapper.querySelector(".mt-1.text-sm.text-gray-400").textContent = sourceLabel;
+
+      const columns = wrapper.querySelectorAll(".font-semibold.text-white");
+      columns[0].textContent = textOrDash(lead.assigned_agent?.agent_name);
+      columns[1].textContent = textOrDash(lead.next_action?.label);
+
+      const nextActionDetail = wrapper.querySelectorAll(".text-sm.text-gray-400")[1];
+      nextActionDetail.textContent = dueText;
+
+      const riskBadge = wrapper.querySelector("div:nth-child(4) .badge");
+      riskBadge.textContent = riskLabel;
+      riskBadge.classList.add(riskClass);
+
+      const countContainer = wrapper.querySelector(".mt-3.flex");
+      countContainer.appendChild(renderMiniCount("Reminders", lead.counts?.reminder_count));
+      countContainer.appendChild(renderMiniCount("Reassignments", lead.counts?.reassignment_count));
+      countContainer.appendChild(renderMiniCount("No Answer", lead.counts?.no_answer_attempt_count));
+
+      const badgeContainer = wrapper.lastElementChild;
+      badges.forEach((badgeText) => {
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = textOrDash(badgeText);
+        badgeContainer.appendChild(badge);
+      });
+
+      return wrapper;
+    }
+
+    function renderMiniCount(label, value) {
+      const item = document.createElement("span");
+      item.className = "rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1";
+      item.textContent = `${label}: ${safeNumber(value)}`;
+      return item;
+    }
+
+    function formatSourceLabel(source) {
+      const system = textOrDash(source?.source_system);
+      const detail = cleanSourceDetail(source?.source_detail);
+
+      if (system === "-" && !detail) {
+        return "-";
+      }
+
+      if (!detail) {
+        return system;
+      }
+
+      return `${system} / ${detail}`;
+    }
+
+    function cleanSourceDetail(value) {
+      const text = String(value || "").trim();
+
+      if (!text) {
+        return "";
+      }
+
+      if (text === "ENGAGEPRIORITY_TEST_FORM") {
+        return "Website Form";
+      }
+
+      return text
+        .replace(/_/g, " ")
+        .toLowerCase()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function riskClassFor(label) {
+      const normalized = String(label || "").toLowerCase();
+
+      if (normalized === "escalated") return "risk-escalated";
+      if (normalized === "overdue") return "risk-overdue";
+      if (normalized === "needs action") return "risk-needs-action";
+      if (normalized === "closed") return "risk-closed";
+
+      return "risk-on-track";
+    }
+
+    function formatDateTime(value) {
+      if (!value) {
+        return "";
+      }
+
+      const date = new Date(value);
+
+      if (Number.isNaN(date.getTime())) {
+        return "";
+      }
+
+      return new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      }).format(date);
+    }
+
+    function safeNumber(value) {
+      const parsed = Number(value);
+
+      if (!Number.isFinite(parsed)) {
+        return 0;
+      }
+
+      return parsed;
+    }
+
+    function textOrDash(value) {
+      const text = String(value || "").trim();
+      return text || "-";
     }
 
     logoutButton.addEventListener("click", async () => {
@@ -228,6 +571,9 @@
         window.location.href = "/login?status=signed_out";
       }
     });
+
+    refreshButton.addEventListener("click", loadDashboardData);
+    retryButton.addEventListener("click", loadDashboardData);
 
     checkSession();
   </script>
