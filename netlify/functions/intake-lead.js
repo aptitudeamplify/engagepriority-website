@@ -73,7 +73,7 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = google.sheets({ version: "v4", auth });
-const leadId = await generateLeadId(sheets);
+const leadId = generateLeadId();
 
 t0 = Date.now();
 const clientsRes = await sheets.spreadsheets.values.get({
@@ -1145,53 +1145,11 @@ async function sendSmsIfEnabled({ to, message }) {
   };
 }
 
-async function generateLeadId(sheets) {
-  const counterRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: SHEET_ID,
-    range: "SystemCounters!A1:D1000"
-  });
+function generateLeadId() {
+  const timestampPart = Date.now().toString(36).toUpperCase();
+  const randomPart = randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase();
 
-  const rows = counterRes.data.values || [];
-
-  if (rows.length < 2) {
-    throw new Error("SystemCounters tab must contain a lead_id counter row.");
-  }
-
-  const headers = rows[0];
-  const counterNameIndex = headers.indexOf("counter_name");
-  const currentValueIndex = headers.indexOf("current_value");
-  const updatedTsIndex = headers.indexOf("updated_ts_utc");
-
-  const leadCounterRowIndex = rows.findIndex((row, index) => {
-    return index > 0 && String(row[counterNameIndex] || "").trim() === "lead_id";
-  });
-
-  if (leadCounterRowIndex === -1) {
-    throw new Error("SystemCounters lead_id counter row not found.");
-  }
-
-  const currentValue = parseInt(rows[leadCounterRowIndex][currentValueIndex] || "0", 10);
-
-  if (!Number.isFinite(currentValue) || currentValue < 0) {
-    throw new Error(`Invalid lead_id counter current_value: ${rows[leadCounterRowIndex][currentValueIndex]}`);
-  }
-
-  const nextValue = currentValue + 1;
-  const leadId = `L-${String(nextValue).padStart(6, "0")}`;
-
-  const sheetRowNumber = leadCounterRowIndex + 1;
-  const updatedTsUtc = new Date().toISOString();
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SHEET_ID,
-    range: `SystemCounters!B${sheetRowNumber}:C${sheetRowNumber}`,
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [[nextValue, updatedTsUtc]]
-    }
-  });
-
-  return leadId;
+  return `L-${timestampPart}-${randomPart}`;
 }
 
 async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
