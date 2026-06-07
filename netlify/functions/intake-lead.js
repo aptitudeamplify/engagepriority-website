@@ -583,14 +583,6 @@ if (!assignedAgent) {
   throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 }
 
-const actionLinks = await createInitialActionLinks({
-  sheets,
-  lead_id: leadId,
-  client,
-  assigned_agent_id: assignmentResult.assigned_agent_id,
-  trace_id
-});
-
 t0 = Date.now();
 
 const nowUtc = new Date().toISOString();
@@ -723,6 +715,14 @@ await sheets.spreadsheets.values.append({
   requestBody: {
     values: [reminderRow]
   }
+});
+
+const actionLinks = await createInitialActionLinks({
+  sheets,
+  lead_id: leadId,
+  client,
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  trace_id
 });
 
 await appendIdempotencyRow({
