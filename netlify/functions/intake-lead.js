@@ -76,7 +76,7 @@ const sheets = google.sheets({ version: "v4", auth });
 const leadId = generateLeadId();
 
 t0 = Date.now();
-const registryRes = await sheets.spreadsheets.values.batchGet({
+const registryRes = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
   spreadsheetId: SHEET_ID,
   ranges: [
     "Clients!A1:AC1000",
@@ -84,7 +84,7 @@ const registryRes = await sheets.spreadsheets.values.batchGet({
     "RoutingState!A1:Z1000",
     "IntakeSourceMap!A1:Z1000"
   ]
-});
+}));
 const registryReadMs = Date.now() - t0;
 timing.sheets_read_clients_ms = registryReadMs;
 timing.sheets_read_agents_ms = 0;
@@ -1143,54 +1143,55 @@ function generateLeadId() {
   return `L-${timestampPart}-${randomPart}`;
 }
 
+function generateShortCode() {
+  return randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
+}
+
+function isRetryableSheetsReadError(error) {
+  const status = error?.response?.status || error?.code || error?.status;
+  const message = String(error?.message || "").toLowerCase();
+
+  return status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes("quota exceeded") ||
+    message.includes("rate limit") ||
+    message.includes("read requests per minute");
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function withSheetsReadRetry(operation, { maxRetries = 2, baseDelayMs = 250 } = {}) {
+  let attempt = 0;
+
+  while (true) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (attempt >= maxRetries || !isRetryableSheetsReadError(error)) {
+        throw error;
+      }
+
+      await sleep(baseDelayMs * Math.pow(2, attempt));
+      attempt++;
+    }
+  }
+}
+
 async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
   const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
   const created_ts_utc = new Date().toISOString();
 
-  const existingRes = await sheets.spreadsheets.values.get({
-    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A1:N1000"
-  });
-
-  const existingRows = existingRes.data.values || [];
-
-  const existingShortCodes = new Set(
-    existingRows.slice(1).map(row => row[0])
-  );
-
-  function generateShortCode() {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-    let result = "";
-    for (let i = 0; i < 6; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
-
   const results = {};
   const rowsToInsert = [];
 
   for (const gateway_context of gatewayContexts) {
-    let short_code;
-    let attempts = 0;
-
-    while (attempts < 3) {
-      const candidate = generateShortCode();
-
-      if (!existingShortCodes.has(candidate)) {
-        short_code = candidate;
-        existingShortCodes.add(candidate);
-        break;
-      }
-
-      attempts++;
-    }
-
-    if (!short_code) {
-      throw new Error(`Failed to generate unique short_code for ${gateway_context} after 3 attempts`);
-    }
-
+    const short_code = generateShortCode();
     const public_url = `https://engagepriority.com/a/${short_code}`;
 
     results[gateway_context] = {
@@ -1261,10 +1262,10 @@ function findRowIndexByColumnValue(rows, columnName, value) {
 }
 
 async function readSheetRows(sheets, spreadsheetId, range) {
-  const res = await sheets.spreadsheets.values.get({
+  const res = await withSheetsReadRetry(() => sheets.spreadsheets.values.get({
     spreadsheetId,
     range
-  });
+  }));
 
   return res.data.values || [];
 }
