@@ -43,6 +43,29 @@ function errorPage(message) {
   return page("Error", `<h2>${escapeHtml(message)}</h2>`);
 }
 
+function temporaryUnavailablePage() {
+  return page(
+    "Temporary Unavailable",
+    `<h2>Temporary Unavailable</h2>
+     <p>EngagePriority is temporarily unable to load this secure action page. Please wait a moment and try the link again.</p>`
+  );
+}
+
+function isSheetsQuotaOrTransientError(error) {
+  const status = error?.response?.status || error?.code || error?.status;
+  const message = String(error?.message || "").toLowerCase();
+
+  return status === 429 ||
+    status === 500 ||
+    status === 502 ||
+    status === 503 ||
+    status === 504 ||
+    message.includes("quota exceeded") ||
+    message.includes("rate limit") ||
+    message.includes("read requests per minute") ||
+    message.includes("sheets.googleapis.com");
+}
+
 function rowsToObjects(rows) {
   const headers = rows[0] || [];
 
@@ -449,47 +472,6 @@ exports.handler = async function (event) {
       };
     }
 
-    const leadRow = await lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId);
-
-    if (!leadRow) {
-      console.log("gateway_invalid_state", {
-        short_code: shortCode,
-        trace_id: actionRow.trace_id || "",
-        lead_id: leadId,
-        client_id: clientId,
-        gateway_context: gatewayContext,
-        reason: "LEAD_ROW_NOT_FOUND",
-        event_ts_utc: new Date().toISOString()
-      });
-
-      return {
-        statusCode: 200,
-        headers: noCacheHeaders,
-        body: errorPage("Lead not found")
-      };
-    }
-
-    const phone = String(leadRow.phone || "").trim();
-    const name = String(leadRow.full_name || "Lead").trim();
-
-    if (!phone) {
-      console.log("gateway_invalid_state", {
-        short_code: shortCode,
-        trace_id: actionRow.trace_id || "",
-        lead_id: leadId,
-        client_id: clientId,
-        gateway_context: gatewayContext,
-        reason: "LEAD_PHONE_NOT_AVAILABLE",
-        event_ts_utc: new Date().toISOString()
-      });
-
-      return {
-        statusCode: 200,
-        headers: noCacheHeaders,
-        body: errorPage("Lead phone not available")
-      };
-    }
-
     if (event.httpMethod === "POST") {
         const selectedAction = String(
             event.queryStringParameters?.selected_action || ""
@@ -630,6 +612,48 @@ exports.handler = async function (event) {
         };
       }
 
+      const leadRow = await lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId);
+
+      if (!leadRow) {
+        console.log("gateway_invalid_state", {
+          short_code: shortCode,
+          trace_id: actionRow.trace_id || "",
+          lead_id: leadId,
+          client_id: clientId,
+          gateway_context: gatewayContext,
+          selected_action: selectedAction,
+          reason: "LEAD_ROW_NOT_FOUND_FOR_CALL_NOW",
+          event_ts_utc: new Date().toISOString()
+        });
+
+        return {
+          statusCode: 200,
+          headers: noCacheHeaders,
+          body: errorPage("Lead not found")
+        };
+      }
+
+      const phone = String(leadRow.phone || "").trim();
+
+      if (!phone) {
+        console.log("gateway_invalid_state", {
+          short_code: shortCode,
+          trace_id: actionRow.trace_id || "",
+          lead_id: leadId,
+          client_id: clientId,
+          gateway_context: gatewayContext,
+          selected_action: selectedAction,
+          reason: "LEAD_PHONE_NOT_AVAILABLE_FOR_CALL_NOW",
+          event_ts_utc: new Date().toISOString()
+        });
+
+        return {
+          statusCode: 200,
+          headers: noCacheHeaders,
+          body: errorPage("Lead phone not available")
+        };
+      }
+
       return {
         statusCode: 200,
         headers: noCacheHeaders,
@@ -642,6 +666,47 @@ exports.handler = async function (event) {
            </script>
            <a href="tel:${escapeHtml(phone)}" style="font-size:20px;">Tap here if the dialer did not open</a>`
         )
+      };
+    }
+
+    const leadRow = await lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId);
+
+    if (!leadRow) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        reason: "LEAD_ROW_NOT_FOUND",
+        event_ts_utc: new Date().toISOString()
+      });
+
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Lead not found")
+      };
+    }
+
+    const phone = String(leadRow.phone || "").trim();
+    const name = String(leadRow.full_name || "Lead").trim();
+
+    if (!phone) {
+      console.log("gateway_invalid_state", {
+        short_code: shortCode,
+        trace_id: actionRow.trace_id || "",
+        lead_id: leadId,
+        client_id: clientId,
+        gateway_context: gatewayContext,
+        reason: "LEAD_PHONE_NOT_AVAILABLE",
+        event_ts_utc: new Date().toISOString()
+      });
+
+      return {
+        statusCode: 200,
+        headers: noCacheHeaders,
+        body: errorPage("Lead phone not available")
       };
     }
 
@@ -806,6 +871,19 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
     };
 
   } catch (err) {
+    if (isSheetsQuotaOrTransientError(err)) {
+      console.error("gateway_error", {
+        safe_error_category: "SHEETS_TEMPORARY_UNAVAILABLE",
+        event_ts_utc: new Date().toISOString()
+      });
+
+      return {
+        statusCode: 503,
+        headers: noCacheHeaders,
+        body: temporaryUnavailablePage()
+      };
+    }
+
     console.error("gateway_error", {
       error_message: err.message,
       event_ts_utc: new Date().toISOString()
@@ -818,4 +896,3 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
     };
   }
 };
-
