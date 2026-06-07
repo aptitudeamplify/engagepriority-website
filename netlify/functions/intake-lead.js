@@ -76,34 +76,25 @@ const sheets = google.sheets({ version: "v4", auth });
 const leadId = generateLeadId();
 
 t0 = Date.now();
-const clientsRes = await sheets.spreadsheets.values.get({
+const registryRes = await sheets.spreadsheets.values.batchGet({
   spreadsheetId: SHEET_ID,
-  range: "Clients!A1:AC1000"
+  ranges: [
+    "Clients!A1:AC1000",
+    "Agents!A1:Z1000",
+    "RoutingState!A1:Z1000",
+    "IntakeSourceMap!A1:Z1000"
+  ]
 });
-timing.sheets_read_clients_ms = Date.now() - t0;
+const registryReadMs = Date.now() - t0;
+timing.sheets_read_clients_ms = registryReadMs;
+timing.sheets_read_agents_ms = 0;
+timing.sheets_read_pointer_ms = 0;
 
-t0 = Date.now();
-const agentsRes = await sheets.spreadsheets.values.get({
-  spreadsheetId: SHEET_ID,
-  range: "Agents!A1:Z1000"
-});
-timing.sheets_read_agents_ms = Date.now() - t0;
-
-t0 = Date.now();
-const routingRes = await sheets.spreadsheets.values.get({
-  spreadsheetId: SHEET_ID,
-  range: "RoutingState!A1:Z1000"
-});
-timing.sheets_read_pointer_ms = Date.now() - t0;
-
-const intakeSourceMapRes = await sheets.spreadsheets.values.get({
-spreadsheetId: SHEET_ID,
-range: "IntakeSourceMap!A1:Z1000"
-});
-
-const clientsRows = clientsRes.data.values || [];
-const agentsRows = agentsRes.data.values || [];
-const routingRows = routingRes.data.values || [];
+const registryValueRanges = registryRes.data.valueRanges || [];
+const clientsRows = registryValueRanges[0]?.values || [];
+const agentsRows = registryValueRanges[1]?.values || [];
+const routingRows = registryValueRanges[2]?.values || [];
+const intakeSourceMapRows = registryValueRanges[3]?.values || [];
 
 if (clientsRows.length < 2) {
   throw new Error("Clients tab must contain a header row and at least one client row.");
@@ -120,7 +111,7 @@ if (routingRows.length < 2) {
 const clients = rowsToObjects(clientsRows);
 const agents = rowsToObjects(agentsRows);
 const routingStates = rowsToObjects(routingRows);
-const intakeSourceMap = rowsToObjects(intakeSourceMapRes.data.values || []);
+const intakeSourceMap = rowsToObjects(intakeSourceMapRows);
 
 const source_system = String(leadPayload.source_system || "WEBSITE").trim().toUpperCase();
 const source_primary_key_type = "source_detail";
