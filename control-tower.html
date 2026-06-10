@@ -10,52 +10,57 @@
 
     body {
       font-family: 'Inter', sans-serif;
-      background-color: #0f172a;
-      color: #ffffff;
+      background-color: #07111f;
+      color: #0f172a;
       margin: 0;
     }
 
-    .glass {
-      background: rgba(255, 255, 255, 0.03);
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      border: 1px solid rgba(255, 255, 255, 0.05);
+    .page-bg {
+      background:
+        radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.13) 0%, rgba(20, 184, 166, 0) 30%),
+        radial-gradient(circle at 82% 0%, rgba(56, 189, 248, 0.10) 0%, rgba(56, 189, 248, 0) 28%),
+        linear-gradient(135deg, #07111f 0%, #0f172a 46%, #111827 100%);
     }
 
-    .glass-heavy {
-      background: rgba(30, 41, 59, 0.7);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+    .surface {
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid rgba(226, 232, 240, 0.95);
+      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
+    }
+
+    .card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
     }
 
     .btn-primary {
-      background: linear-gradient(135deg, #f6c15a, #f0a93a);
-      transition: all 0.3s ease;
+      background: linear-gradient(135deg, #0f766e, #0891b2);
+      transition: all 0.2s ease;
       position: relative;
       overflow: hidden;
     }
 
     .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 25px -5px rgba(240, 169, 58, 0.45);
+      transform: translateY(-1px);
+      box-shadow: 0 14px 30px -10px rgba(8, 145, 178, 0.55);
     }
 
     .btn-secondary {
       background: transparent;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      transition: all 0.3s ease;
+      border: 1px solid #cbd5e1;
+      transition: all 0.2s ease;
     }
 
     .btn-secondary:hover {
-      border-color: #3b82f6;
-      background: rgba(59, 130, 246, 0.1);
+      border-color: #0891b2;
+      background: rgba(8, 145, 178, 0.08);
     }
 
     .btn-primary:disabled,
     .btn-secondary:disabled {
       cursor: not-allowed;
-      opacity: 0.7;
+      opacity: 0.55;
       transform: none;
       box-shadow: none;
     }
@@ -64,91 +69,103 @@
       display: inline-flex;
       align-items: center;
       border-radius: 9999px;
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      background: rgba(255, 255, 255, 0.06);
-      padding: 0.2rem 0.55rem;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 0.22rem 0.6rem;
       font-size: 0.72rem;
-      color: #cbd5e1;
+      color: #475569;
       white-space: nowrap;
     }
 
     .risk-escalated {
-      color: #fecaca;
-      background: rgba(239, 68, 68, 0.12);
-      border-color: rgba(239, 68, 68, 0.25);
+      color: #991b1b;
+      background: #fef2f2;
+      border-color: #fecaca;
     }
 
     .risk-overdue {
-      color: #fed7aa;
-      background: rgba(249, 115, 22, 0.12);
-      border-color: rgba(249, 115, 22, 0.25);
+      color: #9a3412;
+      background: #fff7ed;
+      border-color: #fed7aa;
     }
 
     .risk-needs-action {
-      color: #fde68a;
-      background: rgba(245, 158, 11, 0.12);
-      border-color: rgba(245, 158, 11, 0.25);
+      color: #854d0e;
+      background: #fffbeb;
+      border-color: #fde68a;
     }
 
     .risk-on-track {
-      color: #bfdbfe;
-      background: rgba(59, 130, 246, 0.12);
-      border-color: rgba(59, 130, 246, 0.25);
+      color: #075985;
+      background: #f0f9ff;
+      border-color: #bae6fd;
     }
 
     .risk-closed {
-      color: #bbf7d0;
-      background: rgba(34, 197, 94, 0.12);
-      border-color: rgba(34, 197, 94, 0.25);
+      color: #166534;
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+
+    .filter-button-active {
+      border-color: #0891b2 !important;
+      background: rgba(8, 145, 178, 0.10) !important;
+      color: #0e7490 !important;
     }
 
     .drawer-backdrop {
-      background: rgba(2, 6, 23, 0.72);
+      background: rgba(2, 6, 23, 0.58);
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
     }
   </style>
 </head>
-<body class="antialiased selection:bg-blue-500 selection:text-white">
-  <nav class="fixed w-full z-50 border-b border-white/10 bg-slate-900/80 backdrop-blur-md">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-20">
-        <div class="flex items-center">
+<body class="antialiased selection:bg-cyan-500 selection:text-white">
+  <nav class="fixed z-50 w-full border-b border-white/10 bg-slate-950/90 backdrop-blur-md">
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div class="flex min-h-20 items-center justify-between gap-4">
+        <div class="flex items-center gap-4">
           <img src="assets/engagepriority-header-logo.png" alt="EngagePriority" class="h-10 w-auto" />
+          <span class="hidden rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100 sm:inline-flex">Control Tower</span>
         </div>
 
-        <button id="logoutButton" type="button" class="btn-secondary text-white px-5 py-2.5 rounded-lg font-semibold text-sm">
-          Sign Out
-        </button>
+        <div class="flex items-center gap-2">
+          <button id="refreshButton" type="button" class="btn-primary rounded-lg px-4 py-2.5 text-sm font-bold text-white">
+            Refresh
+          </button>
+          <button id="logoutButton" type="button" class="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/50 hover:bg-white/5">
+            Logout
+          </button>
+        </div>
       </div>
     </div>
   </nav>
 
-  <main class="min-h-screen pt-28 pb-16 px-4 sm:px-6 lg:px-8 bg-slate-950">
-    <section class="max-w-7xl mx-auto">
-      <div id="sessionLoadingState" class="glass-heavy rounded-2xl p-8 text-center">
-        <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+  <main class="page-bg min-h-screen px-4 pb-16 pt-28 sm:px-6 lg:px-8">
+    <section class="mx-auto max-w-7xl">
+      <div id="sessionLoadingState" class="surface rounded-3xl p-8 text-center">
+        <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-cyan-700">
           CONTROL TOWER
         </p>
-        <h1 class="text-3xl font-bold mb-3">
+        <h1 class="mb-3 text-3xl font-bold">
           Loading Control Tower...
         </h1>
-        <p class="text-gray-400">
+        <p class="text-slate-500">
           Verifying your session.
         </p>
       </div>
 
-      <div id="accessErrorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
-        <p class="text-sm uppercase tracking-[0.25em] text-red-300 font-semibold mb-3">
+      <div id="accessErrorState" class="hidden surface rounded-3xl border-red-200 p-8 text-center">
+        <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-red-600">
           ACCESS REQUIRED
         </p>
-        <h1 class="text-3xl font-bold mb-3">
+        <h1 class="mb-3 text-3xl font-bold">
           Please sign in to access the Control Tower.
         </h1>
-        <p class="text-gray-400 mb-6">
+        <p class="mb-6 text-slate-500">
           Your session is missing, expired, or no longer valid.
         </p>
-        <a href="/login" class="inline-block btn-primary text-white px-6 py-3 rounded-lg font-bold">
+        <a href="/login" class="btn-primary inline-block rounded-xl px-6 py-3 font-bold text-white">
           Go to Login
         </a>
       </div>
@@ -156,90 +173,98 @@
       <div id="appShell" class="hidden">
         <div class="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p class="text-sm uppercase tracking-[0.25em] text-blue-300 font-semibold mb-3">
+            <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-cyan-200">
               CONTROL TOWER
             </p>
-            <h1 class="text-4xl md:text-5xl font-bold tracking-tight">
+            <h1 class="text-4xl font-bold tracking-tight text-white md:text-5xl">
               Lead Response Dashboard
             </h1>
-            <p class="mt-4 text-gray-400 max-w-2xl">
+            <p class="mt-4 max-w-2xl text-slate-300">
               Read-only visibility into active lead response status, reminders, reassignment, escalation, and recent outcomes.
             </p>
           </div>
 
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <p id="lastUpdatedText" class="text-sm text-gray-500">
+          <div class="flex flex-col items-start gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 sm:items-end">
+            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Status</p>
+            <p id="lastUpdatedText" class="text-sm text-slate-200">
               Last updated: -
             </p>
-            <button id="refreshButton" type="button" class="btn-primary text-white px-5 py-3 rounded-lg font-bold text-sm">
-              Refresh
-            </button>
           </div>
         </div>
 
-        <div id="dataLoadingState" class="glass-heavy rounded-2xl p-8 text-center">
-          <h2 class="text-2xl font-bold mb-3">
+        <div id="dataLoadingState" class="surface rounded-3xl p-8 text-center">
+          <h2 class="mb-3 text-2xl font-bold">
             Loading dashboard...
           </h2>
-          <p class="text-gray-400">
+          <p class="text-slate-500">
             Fetching the latest read-only lead response data.
           </p>
         </div>
 
-        <div id="dataErrorState" class="hidden glass-heavy rounded-2xl p-8 text-center border-red-400/30">
-          <h2 class="text-2xl font-bold mb-3">
+        <div id="dataErrorState" class="hidden surface rounded-3xl border-red-200 p-8 text-center">
+          <h2 class="mb-3 text-2xl font-bold">
             Control Tower temporarily unavailable
           </h2>
-          <p class="text-gray-400 mb-6">
+          <p class="mb-6 text-slate-500">
             The dashboard data could not be loaded. Please try refreshing.
           </p>
-          <button id="retryButton" type="button" class="btn-secondary text-white px-5 py-3 rounded-lg font-semibold text-sm">
+          <button id="retryButton" type="button" class="btn-secondary rounded-xl px-5 py-3 text-sm font-semibold text-slate-700">
             Try Again
           </button>
         </div>
 
         <div id="dashboardContent" class="hidden">
-          <div class="glass-heavy mb-6 rounded-2xl border border-blue-500/20 p-5">
+          <div class="surface mb-6 rounded-3xl p-5">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p class="mb-2 text-xs uppercase tracking-[0.18em] text-gray-400">View:</p>
+                <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">View:</p>
                 <div id="timeFilterControls" class="flex flex-wrap gap-2">
-                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="today">Today</button>
-                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="last_7_days">Last 7 Days</button>
-                  <button type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white" data-time-filter="active_only">Active Only</button>
+                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="today">Today</button>
+                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="last_7_days">Last 7 Days</button>
+                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="active_only">Active Only</button>
                 </div>
               </div>
 
               <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <p id="focusedStatusText" class="text-sm text-gray-400">Focused status: All</p>
-                <button id="clearStatusFilterButton" type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white">
+                <p id="focusedStatusText" class="text-sm text-slate-500">Focused status: All</p>
+                <button id="clearStatusFilterButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
                   Clear Status Filter
                 </button>
               </div>
             </div>
           </div>
 
-          <div id="summaryCards" class="grid gap-4 md:grid-cols-2 xl:grid-cols-5 mb-8"></div>
+          <div id="summaryCards" class="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5"></div>
 
-          <div class="glass-heavy rounded-2xl border border-blue-500/20 overflow-hidden">
-            <div class="flex flex-col gap-2 border-b border-white/10 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <div class="surface overflow-hidden rounded-3xl">
+            <div class="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 class="text-2xl font-bold">Lead Response Queue</h2>
-                <p class="text-sm text-gray-400">
+                <p class="text-sm text-slate-500">
                   Showing up to 20 records from the current read-only view.
                 </p>
               </div>
-              <p id="visibleCountText" class="text-sm text-gray-500"></p>
+              <p id="visibleCountText" class="text-sm text-slate-400"></p>
+            </div>
+
+            <div class="hidden grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+              <span>Received</span>
+              <span>Lead</span>
+              <span>Source</span>
+              <span>Assigned Agent</span>
+              <span>Status</span>
+              <span>Next Action</span>
+              <span>Risk</span>
             </div>
 
             <div id="emptyState" class="hidden p-8 text-center">
-              <h3 class="text-xl font-bold mb-2">No leads to show</h3>
-              <p class="text-gray-400">
+              <h3 class="mb-2 text-xl font-bold">No leads to show</h3>
+              <p class="text-slate-500">
                 No active leads or leads closed today.
               </p>
             </div>
 
-            <div id="leadList" class="divide-y divide-white/10"></div>
+            <div id="leadList" class="divide-y divide-slate-200"></div>
           </div>
         </div>
       </div>
@@ -248,90 +273,90 @@
 
   <div id="detailDrawerOverlay" class="hidden fixed inset-0 z-[60] drawer-backdrop">
     <div class="absolute inset-y-0 right-0 flex w-full justify-end">
-      <aside class="h-full w-full max-w-xl overflow-y-auto border-l border-white/10 bg-slate-950 shadow-2xl">
-        <div class="sticky top-0 z-10 border-b border-white/10 bg-slate-950/95 px-6 py-5 backdrop-blur">
+      <aside class="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+        <div class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-5 backdrop-blur">
           <div class="flex items-start justify-between gap-4">
             <div>
-              <p class="text-xs uppercase tracking-[0.22em] text-blue-300 font-semibold">Lead Detail</p>
-              <h2 id="drawerLeadName" class="mt-2 text-2xl font-bold">-</h2>
-              <p id="drawerLeadMeta" class="mt-1 text-sm text-gray-400">-</p>
+              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">Lead Detail</p>
+              <h2 id="drawerLeadName" class="mt-2 text-2xl font-bold text-slate-950">-</h2>
+              <p id="drawerLeadMeta" class="mt-1 text-sm text-slate-500">-</p>
             </div>
 
-            <button id="drawerCloseButton" type="button" class="btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white">
+            <button id="drawerCloseButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
               Close
             </button>
           </div>
         </div>
 
         <div class="space-y-6 p-6">
-          <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Lead Summary</h3>
+          <section class="card rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold text-slate-950">Lead Summary</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Assigned Agent</p>
-                <p id="drawerAssignedAgent" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current owner</p>
+                <p id="drawerAssignedAgent" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Current Status</p>
-                <p id="drawerStatus" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Status</p>
+                <p id="drawerStatus" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Risk Level</p>
-                <p id="drawerRisk" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Risk</p>
+                <p id="drawerRisk" class="mt-1 font-semibold text-slate-900">-</p>
+              </div>
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Source</p>
+                <p id="drawerSource" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
             </div>
           </section>
 
-          <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Enforcement Status</h3>
+          <section class="card rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold text-slate-950">Enforcement Status</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Next Action</p>
-                <p id="drawerNextAction" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Active gateway state</p>
+                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Due Timing</p>
-                <p id="drawerDueTiming" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Reassignment state</p>
+                <p id="drawerReassignmentState" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Active Link State</p>
-                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Escalation state</p>
+                <p id="drawerEscalationState" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Escalation Status</p>
-                <p id="drawerEscalationState" class="mt-1 font-semibold text-white">-</p>
-              </div>
-              <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Final Outcome</p>
-                <p id="drawerFinalOutcome" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Final outcome</p>
+                <p id="drawerFinalOutcome" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
             </div>
           </section>
 
-          <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">System Context</h3>
+          <section class="card rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold text-slate-950">System Context</h3>
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Assigned Agent ID</p>
-                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current owner ID</p>
+                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Release-Time Agent ID</p>
-                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Release-time owner ID</p>
+                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Gateway Stage</p>
-                <p id="drawerGatewayContext" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Gateway stage</p>
+                <p id="drawerGatewayContext" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
               <div>
-                <p class="text-xs uppercase tracking-[0.16em] text-gray-500">Last Recorded Agent Action</p>
-                <p id="drawerSelectedAction" class="mt-1 font-semibold text-white">-</p>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last recorded agent action</p>
+                <p id="drawerSelectedAction" class="mt-1 font-semibold text-slate-900">-</p>
               </div>
             </div>
           </section>
 
-          <section class="glass rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold">Recent Activity</h3>
+          <section class="card rounded-2xl p-5">
+            <h3 class="mb-4 text-lg font-bold text-slate-950">Recent lifecycle events</h3>
             <div id="drawerLifecycleEvents" class="space-y-3"></div>
           </section>
         </div>
@@ -371,11 +396,11 @@
     };
 
     const summaryConfig = [
-      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Needs Agent Action" },
+      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Awaiting Agent Action" },
       { uiKey: "reminder_active", apiKey: "reminder_active", label: "Reminder Active" },
-      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Pending" },
-      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated" },
-      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed" }
+      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Active" },
+      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated to Admin" },
+      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed Today" }
     ];
 
     function showAuthenticated() {
@@ -426,8 +451,7 @@
 
       timeButtons.forEach((button) => {
         const isActive = button.dataset.timeFilter === currentTimeFilter;
-        button.classList.toggle("border-blue-400", isActive);
-        button.classList.toggle("bg-blue-500/10", isActive);
+        button.classList.toggle("filter-button-active", isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
 
@@ -520,17 +544,17 @@
         const card = document.createElement("button");
         card.type = "button";
         card.className = [
-          "glass p-5 rounded-2xl text-left transition hover:border-blue-400/40 hover:bg-blue-500/10",
-          isActive ? "border-blue-400/60 bg-blue-500/10" : ""
+          "card rounded-2xl p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg",
+          isActive ? "border-cyan-500 bg-cyan-50" : ""
         ].filter(Boolean).join(" ");
         card.setAttribute("aria-pressed", isActive ? "true" : "false");
 
         const labelElement = document.createElement("p");
-        labelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-400 mb-2";
+        labelElement.className = "mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500";
         labelElement.textContent = label;
 
         const valueElement = document.createElement("p");
-        valueElement.className = "text-3xl font-bold";
+        valueElement.className = "text-3xl font-bold text-slate-950";
         valueElement.textContent = String(value);
 
         card.appendChild(labelElement);
@@ -571,75 +595,65 @@
 
     function renderLeadRecord(lead, index) {
       const wrapper = document.createElement("article");
-      wrapper.className = "p-5 hover:bg-white/[0.02] transition";
+      wrapper.className = "p-5 transition hover:bg-slate-50";
 
       const badges = Array.isArray(lead.status?.badges) ? lead.status.badges : [];
-      const riskLabel = displayRiskLabel(lead.risk?.label);
+      const riskLabel = textOrDash(lead.risk?.label);
       const sourceLabel = formatSourceLabel(lead.source);
       const dueText = textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display);
       const riskClass = riskClassFor(riskLabel);
 
       const grid = document.createElement("div");
-      grid.className = "grid gap-5 lg:grid-cols-[1.3fr_1fr_1fr_1fr] lg:items-start";
+      grid.className = "grid gap-4 lg:grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] lg:items-center";
+
+      const receivedColumn = renderInfoColumn("Received", textOrDash(lead.received_display));
 
       const leadColumn = document.createElement("div");
-      const metaWrap = document.createElement("div");
-      metaWrap.className = "flex flex-wrap items-center gap-2 mb-2";
-
-      const received = document.createElement("span");
-      received.className = "text-xs text-gray-500";
-      received.textContent = textOrDash(lead.received_display);
-
-      const statusBadge = document.createElement("span");
-      statusBadge.className = "badge";
-      statusBadge.textContent = displayStatusLabel(lead.status?.primary);
-
-      metaWrap.appendChild(received);
-      metaWrap.appendChild(statusBadge);
-
       const leadName = document.createElement("h3");
-      leadName.className = "text-xl font-bold text-white";
+      leadName.className = "text-lg font-bold text-slate-950";
       leadName.textContent = textOrDash(lead.lead_name);
-
-      const source = document.createElement("p");
-      source.className = "mt-1 text-sm text-gray-400";
-      source.textContent = sourceLabel;
 
       const detailsButton = document.createElement("button");
       detailsButton.type = "button";
-      detailsButton.className = "mt-4 btn-secondary rounded-lg px-4 py-2 text-sm font-semibold text-white";
+      detailsButton.className = "mt-3 btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700";
       detailsButton.textContent = "View details";
       detailsButton.addEventListener("click", () => openLeadDrawer(index));
 
-      leadColumn.appendChild(metaWrap);
       leadColumn.appendChild(leadName);
-      leadColumn.appendChild(source);
       leadColumn.appendChild(detailsButton);
 
+      const sourceColumn = renderInfoColumn("Source", sourceLabel);
       const agentColumn = renderInfoColumn("Assigned Agent", textOrDash(lead.assigned_agent?.agent_name));
-      const actionColumn = renderInfoColumn("Next Action", displayNextActionLabel(lead.next_action?.label), dueText);
+
+      const statusColumn = document.createElement("div");
+      const statusLabel = document.createElement("p");
+      statusLabel.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
+      statusLabel.textContent = "Status";
+      const statusBadge = document.createElement("span");
+      statusBadge.className = "badge";
+      statusBadge.textContent = textOrDash(lead.status?.primary);
+      statusColumn.appendChild(statusLabel);
+      statusColumn.appendChild(statusBadge);
+
+      const actionColumn = renderInfoColumn("Next Action", textOrDash(lead.next_action?.label), dueText);
 
       const riskColumn = document.createElement("div");
       const riskLabelElement = document.createElement("p");
-      riskLabelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-500 mb-1";
+      riskLabelElement.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
       riskLabelElement.textContent = "Risk";
 
       const riskBadge = document.createElement("span");
       riskBadge.className = `badge ${riskClass}`;
       riskBadge.textContent = riskLabel;
 
-      const countContainer = document.createElement("div");
-      countContainer.className = "mt-3 flex flex-wrap gap-2 text-xs text-gray-400";
-      countContainer.appendChild(renderMiniCount("Reminders", lead.counts?.reminder_count));
-      countContainer.appendChild(renderMiniCount("Reassignments", lead.counts?.reassignment_count));
-      countContainer.appendChild(renderMiniCount("No Answer", lead.counts?.no_answer_attempt_count));
-
       riskColumn.appendChild(riskLabelElement);
       riskColumn.appendChild(riskBadge);
-      riskColumn.appendChild(countContainer);
 
+      grid.appendChild(receivedColumn);
       grid.appendChild(leadColumn);
+      grid.appendChild(sourceColumn);
       grid.appendChild(agentColumn);
+      grid.appendChild(statusColumn);
       grid.appendChild(actionColumn);
       grid.appendChild(riskColumn);
 
@@ -652,8 +666,15 @@
         badgeContainer.appendChild(badge);
       });
 
+      const countContainer = document.createElement("div");
+      countContainer.className = "mt-4 flex flex-wrap gap-2 text-xs text-slate-500";
+      countContainer.appendChild(renderMiniCount("Reminders", lead.counts?.reminder_count));
+      countContainer.appendChild(renderMiniCount("Reassignments", lead.counts?.reassignment_count));
+      countContainer.appendChild(renderMiniCount("No Answer", lead.counts?.no_answer_attempt_count));
+
       wrapper.appendChild(grid);
       wrapper.appendChild(badgeContainer);
+      wrapper.appendChild(countContainer);
 
       return wrapper;
     }
@@ -662,11 +683,11 @@
       const column = document.createElement("div");
 
       const labelElement = document.createElement("p");
-      labelElement.className = "text-xs uppercase tracking-[0.18em] text-gray-500 mb-1";
+      labelElement.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
       labelElement.textContent = label;
 
       const valueElement = document.createElement("p");
-      valueElement.className = "font-semibold text-white";
+      valueElement.className = "font-semibold text-slate-900";
       valueElement.textContent = value;
 
       column.appendChild(labelElement);
@@ -674,7 +695,7 @@
 
       if (detail) {
         const detailElement = document.createElement("p");
-        detailElement.className = "text-sm text-gray-400";
+        detailElement.className = "text-sm text-slate-500";
         detailElement.textContent = detail;
         column.appendChild(detailElement);
       }
@@ -696,16 +717,16 @@
 
       setText("drawerLeadName", textOrDash(lead.lead_name));
       setText("drawerLeadMeta", `${textOrDash(lead.received_display)} / ${formatSourceLabel(lead.source)}`);
+      setText("drawerSource", formatSourceLabel(lead.source));
       setText("drawerAssignedAgent", textOrDash(lead.assigned_agent?.agent_name));
-      setText("drawerStatus", displayStatusLabel(lead.status?.primary));
-      setText("drawerRisk", displayRiskLabel(lead.risk?.label));
-      setText("drawerNextAction", displayNextActionLabel(lead.next_action?.label));
-      setText("drawerDueTiming", textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display));
+      setText("drawerStatus", textOrDash(lead.status?.primary));
+      setText("drawerRisk", textOrDash(lead.risk?.label));
       setText("drawerActiveGatewayState", textOrDash(drawer.active_gateway_state));
+      setText("drawerReassignmentState", textOrDash(drawer.reassignment_state));
       setText("drawerCurrentAssignedAgentId", textOrDash(drawer.current_assigned_agent_id));
       setText("drawerReleaseTimeAssignedAgentId", textOrDash(drawer.release_time_assigned_agent_id));
       setText("drawerGatewayContext", textOrDash(drawer.gateway_context));
-      setText("drawerSelectedAction", displaySelectedActionLabel(drawer.selected_action));
+      setText("drawerSelectedAction", textOrDash(drawer.selected_action));
       setText("drawerEscalationState", textOrDash(drawer.escalation_state));
       setText("drawerFinalOutcome", textOrDash(drawer.final_outcome));
       renderLifecycleEvents(lifecycleEvents);
@@ -725,7 +746,7 @@
 
       if (!events.length) {
         const empty = document.createElement("p");
-        empty.className = "text-sm text-gray-400";
+        empty.className = "text-sm text-slate-500";
         empty.textContent = "No recent lifecycle events available.";
         container.appendChild(empty);
         return;
@@ -733,18 +754,18 @@
 
       events.forEach((event) => {
         const item = document.createElement("div");
-        item.className = "rounded-xl border border-white/10 bg-white/[0.03] p-4";
+        item.className = "rounded-xl border border-slate-200 bg-slate-50 p-4";
 
         const label = document.createElement("p");
-        label.className = "font-semibold text-white";
+        label.className = "font-semibold text-slate-900";
         label.textContent = textOrDash(event.event_label);
 
         const meta = document.createElement("p");
-        meta.className = "mt-1 text-sm text-gray-400";
+        meta.className = "mt-1 text-sm text-slate-500";
         meta.textContent = [
           formatDateTime(event.event_ts_utc),
           textOrDash(event.event_stage),
-          displaySelectedActionLabel(event.selected_action)
+          textOrDash(event.selected_action)
         ].filter(value => value && value !== "-").join(" / ") || "-";
 
         item.appendChild(label);
@@ -763,7 +784,7 @@
 
     function renderMiniCount(label, value) {
       const item = document.createElement("span");
-      item.className = "rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1";
+      item.className = "rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1";
       item.textContent = `${label}: ${safeNumber(value)}`;
       return item;
     }
@@ -800,41 +821,6 @@
         .replace(/\b\w/g, (char) => char.toUpperCase());
     }
 
-    function displayStatusLabel(value) {
-      const label = textOrDash(value);
-
-      if (label === "Awaiting Agent Action") return "Needs Agent Action";
-      if (label === "Reassignment Active") return "Reassignment Pending";
-      if (label === "Escalated to Admin") return "Escalated";
-      if (label === "No Answer Follow-up") return "No Answer Follow-Up";
-
-      return label;
-    }
-
-    function displayRiskLabel(value) {
-      return textOrDash(value);
-    }
-
-    function displayNextActionLabel(value) {
-      const label = textOrDash(value);
-
-      if (label === "Agent action") return "Agent Action Needed";
-      if (label === "Reminder") return "Reminder Scheduled";
-      if (label === "Reassignment") return "Reassignment Pending";
-      if (label === "Admin review") return "Admin Review Needed";
-      if (label === "Release") return "Scheduled Release";
-
-      return label;
-    }
-
-    function displaySelectedActionLabel(value) {
-      const label = textOrDash(value);
-
-      if (label === "No Answer Follow-up") return "No Answer Follow-Up";
-
-      return label;
-    }
-
     function riskClassFor(label) {
       const normalized = String(label || "").toLowerCase();
 
@@ -866,13 +852,13 @@
     }
 
     function safeNumber(value) {
-      const parsed = Number(value);
+      const number = Number(value);
 
-      if (!Number.isFinite(parsed)) {
+      if (!Number.isFinite(number)) {
         return 0;
       }
 
-      return parsed;
+      return number;
     }
 
     function textOrDash(value) {
