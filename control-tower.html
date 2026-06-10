@@ -113,6 +113,25 @@
       color: #0e7490 !important;
     }
 
+    .control-context-sticky {
+      position: sticky;
+      top: 5rem;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+
+    .compact-summary-button {
+      min-width: max-content;
+    }
+
+    @media (max-width: 640px) {
+      .control-context-sticky {
+        top: 4.75rem;
+      }
+    }
+
     .drawer-backdrop {
       background: rgba(2, 6, 23, 0.58);
       backdrop-filter: blur(6px);
@@ -214,7 +233,7 @@
         </div>
 
         <div id="dashboardContent" class="hidden">
-          <div class="surface mb-6 rounded-3xl p-5">
+          <div id="controlContextBar" class="control-context-sticky surface mb-5 rounded-3xl p-4 sm:p-5">
             <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">View:</p>
@@ -232,9 +251,11 @@
                 </button>
               </div>
             </div>
+
+            <div id="compactSummaryStrip" class="mt-4 flex gap-2 overflow-x-auto pb-1"></div>
           </div>
 
-          <div id="summaryCards" class="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5"></div>
+          <div id="summaryCards" class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5"></div>
 
           <div class="surface overflow-hidden rounded-3xl">
             <div class="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -375,6 +396,7 @@
     const dataErrorState = document.getElementById("dataErrorState");
     const dashboardContent = document.getElementById("dashboardContent");
     const summaryCards = document.getElementById("summaryCards");
+    const compactSummaryStrip = document.getElementById("compactSummaryStrip");
     const leadList = document.getElementById("leadList");
     const emptyState = document.getElementById("emptyState");
     const lastUpdatedText = document.getElementById("lastUpdatedText");
@@ -396,11 +418,11 @@
     };
 
     const summaryConfig = [
-      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Awaiting Agent Action" },
-      { uiKey: "reminder_active", apiKey: "reminder_active", label: "Reminder Active" },
-      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Active" },
-      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated to Admin" },
-      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed Today" }
+      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Awaiting Agent Action", shortLabel: "Awaiting" },
+      { uiKey: "reminder_active", apiKey: "reminder_active", label: "Reminder Active", shortLabel: "Reminders" },
+      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Active", shortLabel: "Reassign" },
+      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated to Admin", shortLabel: "Escalated" },
+      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed Today", shortLabel: "Closed" }
     ];
 
     function showAuthenticated() {
@@ -461,6 +483,18 @@
         : "Focused status: All";
 
       clearStatusFilterButton.disabled = !currentSummaryFilter;
+
+      document.querySelectorAll("[data-summary-filter]").forEach((button) => {
+        const isActive = button.dataset.summaryFilter === currentSummaryFilter;
+        button.classList.toggle("filter-button-active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    }
+
+    function selectSummaryFilter(apiKey) {
+      currentSummaryFilter = currentSummaryFilter === apiKey ? null : apiKey;
+      updateFilterUi();
+      loadDashboardData();
     }
 
     async function checkSession() {
@@ -536,8 +570,9 @@
 
     function renderSummary(summary) {
       summaryCards.innerHTML = "";
+      compactSummaryStrip.innerHTML = "";
 
-      summaryConfig.forEach(({ uiKey, apiKey, label }) => {
+      summaryConfig.forEach(({ uiKey, apiKey, label, shortLabel }) => {
         const value = safeNumber(summary[uiKey]);
         const isActive = currentSummaryFilter === apiKey;
 
@@ -547,6 +582,7 @@
           "card rounded-2xl p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg",
           isActive ? "border-cyan-500 bg-cyan-50" : ""
         ].filter(Boolean).join(" ");
+        card.dataset.summaryFilter = apiKey;
         card.setAttribute("aria-pressed", isActive ? "true" : "false");
 
         const labelElement = document.createElement("p");
@@ -559,13 +595,18 @@
 
         card.appendChild(labelElement);
         card.appendChild(valueElement);
-        card.addEventListener("click", () => {
-          currentSummaryFilter = currentSummaryFilter === apiKey ? null : apiKey;
-          updateFilterUi();
-          loadDashboardData();
-        });
+        card.addEventListener("click", () => selectSummaryFilter(apiKey));
+
+        const compactButton = document.createElement("button");
+        compactButton.type = "button";
+        compactButton.className = "compact-summary-button btn-secondary rounded-full px-3 py-2 text-xs font-semibold text-slate-700";
+        compactButton.dataset.summaryFilter = apiKey;
+        compactButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+        compactButton.textContent = `${shortLabel}: ${value}`;
+        compactButton.addEventListener("click", () => selectSummaryFilter(apiKey));
 
         summaryCards.appendChild(card);
+        compactSummaryStrip.appendChild(compactButton);
       });
 
       updateFilterUi();
