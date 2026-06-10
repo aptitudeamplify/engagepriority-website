@@ -126,6 +126,19 @@
       min-width: max-content;
     }
 
+    .lead-table-header-sticky {
+      position: sticky;
+      top: var(--lead-header-sticky-top, 14rem);
+      z-index: 30;
+      box-shadow: 0 1px 0 rgba(226, 232, 240, 0.95);
+    }
+
+    @media (max-width: 1023px) {
+      .lead-table-header-sticky {
+        position: static;
+      }
+    }
+
     @media (max-width: 640px) {
       .control-context-sticky {
         top: 4.75rem;
@@ -268,7 +281,7 @@
               <p id="visibleCountText" class="text-sm text-slate-400"></p>
             </div>
 
-            <div class="hidden grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
+            <div class="lead-table-header-sticky hidden grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
               <span>Received</span>
               <span>Lead</span>
               <span>Source</span>
@@ -397,6 +410,7 @@
     const dashboardContent = document.getElementById("dashboardContent");
     const summaryCards = document.getElementById("summaryCards");
     const compactSummaryStrip = document.getElementById("compactSummaryStrip");
+    const controlContextBar = document.getElementById("controlContextBar");
     const leadList = document.getElementById("leadList");
     const emptyState = document.getElementById("emptyState");
     const lastUpdatedText = document.getElementById("lastUpdatedText");
@@ -497,6 +511,15 @@
       loadDashboardData();
     }
 
+    function updateStickyOffsets() {
+      const nav = document.querySelector("nav");
+      const navHeight = nav ? nav.getBoundingClientRect().height : 80;
+      const contextHeight = controlContextBar ? controlContextBar.offsetHeight : 0;
+      const stickyTop = navHeight + contextHeight;
+
+      document.documentElement.style.setProperty("--lead-header-sticky-top", `${stickyTop}px`);
+    }
+
     async function checkSession() {
       try {
         const response = await fetch("/.netlify/functions/control-tower-session", {
@@ -566,6 +589,7 @@
 
       dashboardContent.classList.remove("hidden");
       dataErrorState.classList.add("hidden");
+      requestAnimationFrame(updateStickyOffsets);
     }
 
     function renderSummary(summary) {
@@ -971,6 +995,13 @@
         closeLeadDrawer();
       }
     });
+
+    window.addEventListener("resize", updateStickyOffsets);
+
+    if (window.ResizeObserver && controlContextBar) {
+      const stickyOffsetObserver = new ResizeObserver(updateStickyOffsets);
+      stickyOffsetObserver.observe(controlContextBar);
+    }
 
     updateFilterUi();
     checkSession();
