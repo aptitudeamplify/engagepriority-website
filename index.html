@@ -2,7 +2,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Engage Priority | Instant Lead Assignment</title>
+    <title>EngagePriority | Lead Response Enforcement</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <style>
@@ -12,6 +12,8 @@
             --primary: #3b82f6;
             --secondary: #10b981;
             --dark: #0f172a;
+            --surface: #111827;
+            --border: rgba(148, 163, 184, 0.18);
         }
 
         body {
@@ -24,7 +26,7 @@
 
         /* Animated Background Gradient */
         .gradient-bg {
-            background: radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.15) 0%, rgba(15, 23, 42, 1) 70%);
+            background: radial-gradient(circle at 50% 45%, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 1) 68%);
             animation: pulse-gradient 8s ease-in-out infinite alternate;
         }
 
@@ -35,16 +37,16 @@
 
         /* Glassmorphism Utilities */
         .glass {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(15, 23, 42, 0.54);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
         }
 
         .glass-heavy {
-            background: rgba(30, 41, 59, 0.7);
+            background: rgba(15, 23, 42, 0.82);
             backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid var(--border);
         }
 
         /* Custom Scrollbar */
@@ -55,19 +57,19 @@
 
         /* Typography Utilities */
         .text-gradient {
-            background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+            background: linear-gradient(135deg, #dbeafe 0%, #93c5fd 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
         }
 
         .text-glow {
-            text-shadow: 0 0 20px rgba(96, 165, 250, 0.5);
+            text-shadow: 0 0 14px rgba(96, 165, 250, 0.22);
         }
 
         /* Interactive Elements */
         .btn-primary {
-            background: linear-gradient(135deg, #f6c15a, #f0a93a);
+            background: linear-gradient(135deg, #f3bd57, #e49a2f);
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
@@ -75,7 +77,7 @@
 
         .btn-primary:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 25px -5px rgba(240, 169, 58, 0.45);
+            box-shadow: 0 10px 22px -8px rgba(240, 169, 58, 0.32);
         }
 
         .btn-primary:active {
@@ -130,14 +132,20 @@
             height: 100%;
             z-index: 0;
             pointer-events: none;
-            opacity: 0.4;
+            opacity: 0.22;
             mix-blend-mode: screen;
+        }
+
+        @media (max-width: 767px) {
+            #canvas-container {
+                display: none;
+            }
         }
 
         /* Stats Toggle */
         .stat-card:hover {
-            transform: translateY(-5px);
-            border-color: rgba(59, 130, 246, 0.5);
+            transform: translateY(-2px);
+            border-color: rgba(59, 130, 246, 0.35);
         }
 
         /* 3D Card Effect */
@@ -205,7 +213,7 @@
                 <div class="hidden md:block">
                     <div class="ml-10 flex items-baseline space-x-8">
                         <a href="#problem" class="text-gray-300 hover:text-white transition px-3 py-2 rounded-md text-sm font-medium">Problem</a>
-                        <a href="#solution" class="text-gray-300 hover:text-white transition px-3 py-2 rounded-md text-sm font-medium">Solution</a>
+                        <a href="#solution" class="text-gray-300 hover:text-white transition px-3 py-2 rounded-md text-sm font-medium">Enforcement</a>
                         <a href="#how-it-works" class="text-gray-300 hover:text-white transition px-3 py-2 rounded-md text-sm font-medium">How it Works</a>
                     </div>
                 </div>
@@ -228,9 +236,9 @@
         <div id="mobile-menu" class="hidden md:hidden bg-slate-900 border-b border-white/10">
             <div class="px-2 pt-2 pb-3 space-y-1 sm:px-3">
                 <a href="#problem" class="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Problem</a>
-                <a href="#solution" class="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Solution</a>
+                <a href="#solution" class="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">Enforcement</a>
                 <a href="#how-it-works" class="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">How it Works</a>
-                <button onclick="openModal()" class="w-full text-left bg-blue-600 text-white block px-3 py-2 rounded-md text-base font-medium mt-4">Book a Lead Response Review</button>
+                <button onclick="openModal()" class="w-full text-left btn-primary text-white block px-3 py-2 rounded-md text-base font-semibold mt-4">Book a Lead Response Review</button>
             </div>
         </div>
     </nav>
@@ -248,28 +256,36 @@
                       <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
                       <span class="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
                     </span>
-                    Live Demo Available
+                    Lead Response Enforcement
                 </div>
 
                 <!-- Main Heading -->
-                <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight leading-tight mb-6 fade-in-up delay-1">
-                    <span class="block">Respond to every lead in <br class="hidden md:block" /> <span class="text-gradient text-glow">under 60 seconds</span></span>
-                    <span class="block text-3xl md:text-5xl font-semibold text-gray-400 mt-2">or know exactly why you didn't</span>
+                <h1 class="text-4xl sm:text-5xl md:text-7xl font-extrabold tracking-tight leading-tight mb-6 fade-in-up delay-1">
+                    <span class="block">Respond to every new lead in <br class="hidden md:block" /> <span class="text-gradient text-glow">under 60 seconds</span></span>
+                    <span class="block text-2xl sm:text-3xl md:text-5xl font-semibold text-gray-400 mt-2">or know exactly where response broke down</span>
                 </h1>
 
                 <!-- Subtext -->
                 <p class="mt-6 max-w-2xl mx-auto text-xl text-gray-300 fade-in-up delay-2">
-                    Engage Priority assigns every new lead instantly, alerts the right agent by SMS, and enforces response so no opportunity is missed.
+                    EngagePriority assigns new leads, prompts the right agent, tracks response status, and escalates when follow-up stalls.
                 </p>
 
                 <!-- CTA Buttons -->
                 <div class="mt-10 flex flex-col sm:flex-row justify-center gap-4 fade-in-up delay-3">
-                    <button onclick="openModal()" class="btn-primary px-8 py-4 rounded-xl text-lg font-bold shadow-xl ring-2 ring-blue-500/30">
+                    <button onclick="openModal()" class="btn-primary px-8 py-4 rounded-xl text-lg font-bold shadow-xl ring-1 ring-amber-300/20">
                         Book a Lead Response Review
                     </button>
                     <button onclick="scrollToSection('demo-video')" class="btn-secondary px-8 py-4 rounded-xl text-lg font-semibold text-white hover:text-blue-300">
                         See the System in Action →
                     </button>
+                </div>
+
+                <div class="mt-8 flex flex-wrap justify-center gap-2 text-[0.7rem] font-semibold uppercase tracking-[0.16em] text-slate-300 fade-in-up delay-4">
+                    <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">Assigned</span>
+                    <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">Reminder Active</span>
+                    <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">Reassignment Active</span>
+                    <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">Escalated</span>
+                    <span class="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5">Closed</span>
                 </div>
             </div>
         </div>
@@ -291,7 +307,7 @@
             </h2>
 
             <p class="text-gray-400 max-w-2xl mx-auto text-lg">
-                See how a new website lead is assigned, recorded, and protected when response stalls.
+                See how a new lead is assigned, routed to the agent, and protected with response enforcement when action stalls.
             </p>
         </div>
 
@@ -331,19 +347,19 @@
 
             <div class="grid md:grid-cols-3 gap-8">
                 <!-- Problem 1 -->
-                <div class="glass p-8 rounded-2xl border-t-4 border-red-500/50 hover:bg-white/5 transition duration-300">
-                    <div class="w-12 h-12 bg-red-500/10 rounded-lg flex items-center justify-center mb-6 text-red-400 icon-pulse">
+                <div class="glass p-8 rounded-2xl border-t-4 border-red-400/30 hover:bg-white/5 transition duration-300">
+                    <div class="w-12 h-12 bg-red-400/10 rounded-lg flex items-center justify-center mb-6 text-red-300 icon-pulse">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
                     </div>
                     <h3 class="text-xl font-bold mb-2">Missed Leads</h3>
                     <p class="text-gray-400 leading-relaxed">
-                        Leads sit in the inbox for hours. By the time someone calls, your competitor already beat you to it. Speed kills deals.
+                        Leads sit in the inbox for hours. By the time someone follows up, another team may have already reached the prospect.
                     </p>
                 </div>
 
                 <!-- Problem 2 -->
-                <div class="glass p-8 rounded-2xl border-t-4 border-yellow-500/50 hover:bg-white/5 transition duration-300">
-                    <div class="w-12 h-12 bg-yellow-500/10 rounded-lg flex items-center justify-center mb-6 text-yellow-400 icon-pulse">
+                <div class="glass p-8 rounded-2xl border-t-4 border-amber-300/30 hover:bg-white/5 transition duration-300">
+                    <div class="w-12 h-12 bg-amber-300/10 rounded-lg flex items-center justify-center mb-6 text-amber-200 icon-pulse">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
                     </div>
                     <h3 class="text-xl font-bold mb-2">Slow Response</h3>
@@ -353,13 +369,13 @@
                 </div>
 
                 <!-- Problem 3 -->
-                <div class="glass p-8 rounded-2xl border-t-4 border-purple-500/50 hover:bg-white/5 transition duration-300">
-                    <div class="w-12 h-12 bg-purple-500/10 rounded-lg flex items-center justify-center mb-6 text-purple-400 icon-pulse">
+                <div class="glass p-8 rounded-2xl border-t-4 border-violet-300/30 hover:bg-white/5 transition duration-300">
+                    <div class="w-12 h-12 bg-violet-300/10 rounded-lg flex items-center justify-center mb-6 text-violet-200 icon-pulse">
                         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
                     </div>
                     <h3 class="text-xl font-bold mb-2">No Accountability</h3>
                     <p class="text-gray-400 leading-relaxed">
-                        Without data, you can't manage. You have no idea who drops the ball or why response times vary wildly.
+                        Without response visibility, owners and admins cannot see who acted, who deferred, and where the lead cycle stalled.
                     </p>
                 </div>
             </div>
@@ -373,13 +389,13 @@
 
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl font-bold mb-4">Control the Response. Close More Deals.</h2>
-                <p class="text-gray-400 max-w-2xl mx-auto">Engage Priority assigns the lead instantly, alerts the agent by SMS, and enforces response until action is confirmed.</p>
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">Enforce the Response Before the Lead Goes Cold.</h2>
+                <p class="text-gray-400 max-w-2xl mx-auto">EngagePriority assigns the lead, prompts the agent, tracks action, and keeps the cycle moving through reminders, reassignment, and escalation.</p>
             </div>
 
             <div class="grid md:grid-cols-3 gap-8">
                 <!-- Feature 1 -->
-                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-2">
+                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-1">
                     <div class="flex items-center gap-4 mb-4">
                         <div class="w-10 h-10 bg-green-500/20 rounded-full flex items-center justify-center text-green-400">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
@@ -390,25 +406,25 @@
                 </div>
 
                 <!-- Feature 2 -->
-                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-2">
+                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-1">
                     <div class="flex items-center gap-4 mb-4">
                         <div class="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
                         </div>
-                        <h3 class="text-lg font-bold text-white">SMS Enforcement</h3>
+                        <h3 class="text-lg font-bold text-white">Agent Action Tracking</h3>
                     </div>
-                    <p class="text-gray-400 text-sm">We don't ask agents to respond. We send an SMS that requires a confirmation. If they don't, you know instantly.</p>
+                    <p class="text-gray-400 text-sm">Agents receive one secure action link to confirm activity. If action stalls, the system keeps the response cycle moving.</p>
                 </div>
 
                 <!-- Feature 3 -->
-                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-2">
+                <div class="glass-heavy p-6 rounded-2xl group transform transition hover:-translate-y-1">
                     <div class="flex items-center gap-4 mb-4">
-                        <div class="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center text-purple-400">
+                        <div class="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center text-violet-200">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
                         </div>
-                        <h3 class="text-lg font-bold text-white">Full Visibility</h3>
+                        <h3 class="text-lg font-bold text-white">Admin Visibility</h3>
                     </div>
-                    <p class="text-gray-400 text-sm">Track every lead, every response, and every missed opportunity with full visibility into what your team is doing, backed by clear reporting you can act on.</p>
+                    <p class="text-gray-400 text-sm">Approved admins can see active response cycles, reminders, reassignments, escalations, and closed outcomes without turning EngagePriority into a CRM.</p>
                 </div>
             </div>
         </div>
@@ -418,8 +434,8 @@
     <section id="how-it-works" class="py-24 bg-slate-900 relative z-30">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl font-bold mb-4">How Engage Priority Works</h2>
-                <p class="text-gray-400">From new lead to confirmed response in under 60 seconds, every step is tracked and enforced.</p>
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">How EngagePriority Enforces Lead Response</h2>
+                <p class="text-gray-400">From new lead to confirmed action, every step is tracked, prompted, and escalated when needed.</p>
             </div>
 
             <div class="flex flex-col lg:flex-row gap-8 items-start">
@@ -428,11 +444,11 @@
                 <div class="flex-1 glass p-6 rounded-xl border-l-4 border-blue-500 relative">
                     <div class="flex items-center gap-3 mb-3">
                         <span class="bg-blue-600 text-white font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs">1</span>
-                        <h3 class="text-lg font-bold">Lead Enters</h3>
+                        <h3 class="text-lg font-bold">Lead Received</h3>
                     </div>
-                    <p class="text-gray-400 text-sm">When a new lead is submitted through your connected sources, Engage Priority captures it instantly via webhook.</p>
+                    <p class="text-gray-400 text-sm">A new lead enters through an approved source and is recorded in the response workflow.</p>
                     <div class="mt-4 p-3 bg-black/30 rounded font-mono text-xs text-blue-300 overflow-hidden">
-                        Trigger: New Lead ID #4920
+                        Lead status: Received
                     </div>
                 </div>
 
@@ -447,9 +463,9 @@
                         <span class="bg-purple-600 text-white font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs">2</span>
                         <h3 class="text-lg font-bold">Agent Assigned</h3>
                     </div>
-                    <p class="text-gray-400 text-sm">Engage Priority assigns each new lead instantly using your configured routing rules, ensuring immediate ownership and zero delay.</p>
+                    <p class="text-gray-400 text-sm">EngagePriority assigns each new lead using your configured routing rules, creating immediate ownership and reducing handoff delay.</p>
                     <div class="mt-4 p-3 bg-black/30 rounded font-mono text-xs text-purple-300 overflow-hidden">
-                        Auto-Assign: Agent Sarah
+                        Owner: Assigned
                     </div>
                 </div>
 
@@ -462,11 +478,11 @@
                 <div class="flex-1 glass p-6 rounded-xl border-l-4 border-green-500 relative">
                     <div class="flex items-center gap-3 mb-3">
                         <span class="bg-green-600 text-white font-bold w-6 h-6 flex items-center justify-center rounded-full text-xs">3</span>
-                        <h3 class="text-lg font-bold">System Enforces</h3>
+                        <h3 class="text-lg font-bold">Response Enforced</h3>
                     </div>
-                    <p class="text-gray-400 text-sm">The assigned agent receives an SMS alert with action links. If no action is confirmed, Engage Priority continues enforcement and escalates when needed.</p>
+                    <p class="text-gray-400 text-sm">The assigned agent receives one secure action link. If action is not confirmed, EngagePriority continues with reminders, reassignment, or escalation.</p>
                     <div class="mt-4 p-3 bg-black/30 rounded font-mono text-xs text-green-300 overflow-hidden">
-                        Status: Confirmed (45s elapsed)
+                        Response status: Action confirmed
                     </div>
                 </div>
 
@@ -482,9 +498,9 @@
                 <div class="absolute inset-0 opacity-5" style="background-image: radial-gradient(#fff 1px, transparent 1px); background-size: 20px 20px;"></div>
                 
                 <div class="relative z-10">
-                    <h2 class="text-3xl md:text-5xl font-bold mb-6">Stop Losing Deals to Slow Response.</h2>
+                    <h2 class="text-3xl md:text-5xl font-bold mb-6">Find the Gaps in Your Lead Response Process.</h2>
                     <p class="text-gray-300 text-lg mb-10 max-w-xl mx-auto">
-                        Book a Lead Response Review. We’ll look at how your team handles new leads today and show where response gaps may be costing opportunities.
+                        Book a Lead Response Review. We’ll look at how your team handles new leads today and show where assignment, follow-up, or escalation gaps may be costing opportunities.
                     </p>
                     <button onclick="openModal()" class="btn-primary px-10 py-5 rounded-xl text-lg font-bold shadow-2xl w-full sm:w-auto">
                         Book a Lead Response Review
@@ -500,15 +516,16 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-2">
                 <div class="w-6 h-6 bg-blue-500 rounded flex items-center justify-center font-bold text-white text-xs">EP</div>
-                <span class="font-bold text-white">Engage Priority</span>
+                <span class="font-bold text-white">EngagePriority</span>
             </div>
             <div class="text-gray-500 text-sm">
-                &copy; 2026 Aptitude Amplify LLC. All rights reserved. Engage Priority is a system by Aptitude Amplify LLC.
+                &copy; 2026 Aptitude Amplify LLC. All rights reserved. EngagePriority is a system by Aptitude Amplify LLC.
             </div>
             <div class="flex gap-4 text-gray-400 text-sm">
                 <a href="privacy.html" class="hover:text-white transition">Privacy</a>
                 <a href="terms.html" class="hover:text-white transition">Terms</a>
                 <a href="contact.html" class="hover:text-white transition">Contact</a>
+                <a href="/login" class="hover:text-white transition">Client Login</a>
             </div>
         </div>
     </footer>
@@ -522,7 +539,7 @@
 
             <div id="modal-step-form">
                 <h3 class="text-2xl font-bold mb-2 text-white">Book a Lead Response Review</h3>
-                <p class="text-gray-400 mb-6 text-sm">Tell us briefly about your lead response process. We’ll review it and follow up to schedule a short walkthrough.</p>
+                <p class="text-gray-400 mb-6 text-sm">Tell us briefly about your current lead response process. We’ll review it and follow up to schedule a short walkthrough.</p>
                 
                 <form onsubmit="handleSubmit(event)" class="space-y-4">
                     <div>
@@ -675,7 +692,7 @@
         // We keep this lightweight using basic Three.js primitives
         function initThreeJS() {
             const container = document.getElementById('canvas-container');
-            if (!container) return;
+            if (!container || window.matchMedia('(max-width: 767px)').matches) return;
 
             // Scene Setup
             const scene = new THREE.Scene();
