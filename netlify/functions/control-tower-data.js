@@ -140,7 +140,11 @@ exports.handler = async function handler(event) {
         "last_agent_action",
         "last_agent_action_ts_utc",
         "contact_attempt_started",
-        "contact_attempt_started_ts"
+        "contact_attempt_started_ts",
+        "admin_resolution_status",
+        "admin_resolution_ts_utc",
+        "admin_resolution_by_contact",
+        "admin_resolution_source"
       ]),
       readClientTable(sheets, clientSpreadsheetId, TAB_LEAD_LIFECYCLE_LOG, [
         "event_id",
@@ -451,7 +455,14 @@ function deriveLeadRecord({
   const receivedTsUtc = firstNonBlank(leadRow.created_timestamp, leadRow.assignment_ts_utc);
   const receivedMs = parseDateMs(receivedTsUtc) || 0;
   const contactTsUtc = trimmed(leadRow.contact_timestamp);
+  const adminResolutionStatus = trimmed(leadRow.admin_resolution_status);
+  const adminResolutionTsUtc = trimmed(leadRow.admin_resolution_ts_utc);
+  const adminResolutionSource = trimmed(leadRow.admin_resolution_source);
   const isClosedRecord = isClosedLead(leadRow);
+  const isAdminResolutionEligible =
+    truthy(leadRow.admin_escalation_required) &&
+    !adminResolutionStatus &&
+    !isClosedRecord;
   const activeReminder = newestActiveReminder(reminders);
   const pendingRelease = newestPendingRelease(releases);
   const latestRelease = newestByDate(releases, "released_ts_utc") || newestByDate(releases, "created_ts_utc");
@@ -532,7 +543,11 @@ function deriveLeadRecord({
       selected_action: trimmed(latestActionLink?.selected_action) || trimmed(leadRow.last_agent_action) || null,
       active_gateway_state: activeActionLink ? "Active" : "None",
       escalation_state: truthy(leadRow.admin_escalation_required) ? "Escalated" : "None",
-      final_outcome: trimmed(leadRow.contact_outcome) || null,
+      final_outcome: trimmed(leadRow.contact_outcome) || adminResolutionStatus || null,
+      admin_resolution_eligible: isAdminResolutionEligible,
+      admin_resolution_status: adminResolutionStatus || null,
+      admin_resolution_ts_utc: adminResolutionTsUtc || null,
+      admin_resolution_source: adminResolutionSource || null,
       recent_lifecycle_events: activeLifecycleEvents.slice(0, 5).map(event => ({
         event_ts_utc: trimmed(event.event_ts_utc) || null,
         event_label: eventLabel(event),

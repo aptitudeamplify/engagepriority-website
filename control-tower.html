@@ -369,6 +369,54 @@
             </div>
           </section>
 
+          <section id="adminResolutionSection" class="hidden card rounded-2xl p-5">
+            <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Admin Escalation</p>
+                <h3 class="mt-1 text-lg font-bold text-slate-950">Resolve escalated lead</h3>
+                <p class="mt-2 text-sm text-slate-500">Contact details are hidden until explicitly revealed for resolution.</p>
+              </div>
+            </div>
+
+            <div id="adminResolutionExistingState" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"></div>
+
+            <div id="adminResolutionControls">
+              <button id="showResolutionDetailsButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
+                Show resolution details
+              </button>
+
+              <div id="resolutionDetailsPanel" class="hidden mt-5 space-y-5">
+                <div class="grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Phone</p>
+                    <p id="drawerResolutionPhone" class="mt-1 font-semibold text-slate-900">-</p>
+                  </div>
+                  <div>
+                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Email</p>
+                    <p id="drawerResolutionEmail" class="mt-1 font-semibold text-slate-900">-</p>
+                  </div>
+                </div>
+
+                <div>
+                  <label for="adminResolutionOutcome" class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Resolution outcome</label>
+                  <select id="adminResolutionOutcome" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-100">
+                    <option value="">Select outcome</option>
+                    <option value="ADMIN_CONTACTED_APPOINTMENT_SET">Contacted — Appointment Set</option>
+                    <option value="ADMIN_CONTACTED_NOT_INTERESTED">Contacted — Not Interested</option>
+                    <option value="ADMIN_NO_ANSWER">No Answer — Admin Attempted</option>
+                    <option value="ADMIN_NO_ACTION">No Action — Admin Closed</option>
+                  </select>
+                </div>
+
+                <button id="submitAdminResolutionButton" type="button" class="btn-primary rounded-xl px-5 py-3 text-sm font-bold text-white">
+                  Resolve escalation
+                </button>
+              </div>
+
+              <p id="adminResolutionMessage" class="mt-4 text-sm text-slate-500"></p>
+            </div>
+          </section>
+
           <section class="card rounded-2xl p-5">
             <h3 class="mb-4 text-lg font-bold text-slate-950">System Context</h3>
             <div class="grid gap-4 sm:grid-cols-2">
@@ -421,10 +469,20 @@
     const timeFilterControls = document.getElementById("timeFilterControls");
     const focusedStatusText = document.getElementById("focusedStatusText");
     const clearStatusFilterButton = document.getElementById("clearStatusFilterButton");
+    const adminResolutionSection = document.getElementById("adminResolutionSection");
+    const adminResolutionExistingState = document.getElementById("adminResolutionExistingState");
+    const adminResolutionControls = document.getElementById("adminResolutionControls");
+    const showResolutionDetailsButton = document.getElementById("showResolutionDetailsButton");
+    const resolutionDetailsPanel = document.getElementById("resolutionDetailsPanel");
+    const adminResolutionOutcome = document.getElementById("adminResolutionOutcome");
+    const submitAdminResolutionButton = document.getElementById("submitAdminResolutionButton");
+    const adminResolutionMessage = document.getElementById("adminResolutionMessage");
 
     let currentLeads = [];
     let currentTimeFilter = "today";
     let currentSummaryFilter = null;
+    let activeDrawerLead = null;
+    let resolutionDetailsLoaded = false;
 
     const timeFilterLabels = {
       today: "Today",
@@ -786,6 +844,7 @@
       setText("drawerEscalationState", textOrDash(drawer.escalation_state));
       setText("drawerFinalOutcome", textOrDash(drawer.final_outcome));
       renderLifecycleEvents(lifecycleEvents);
+      resetAdminResolutionPanel(lead);
 
       detailDrawerOverlay.classList.remove("hidden");
       document.body.style.overflow = "hidden";
@@ -794,6 +853,137 @@
     function closeLeadDrawer() {
       detailDrawerOverlay.classList.add("hidden");
       document.body.style.overflow = "";
+      activeDrawerLead = null;
+      resolutionDetailsLoaded = false;
+    }
+
+    function resetAdminResolutionPanel(lead) {
+      const drawer = lead?.drawer || {};
+      activeDrawerLead = lead || null;
+      resolutionDetailsLoaded = false;
+
+      adminResolutionSection.classList.add("hidden");
+      adminResolutionExistingState.classList.add("hidden");
+      adminResolutionExistingState.textContent = "";
+      adminResolutionControls.classList.remove("hidden");
+      resolutionDetailsPanel.classList.add("hidden");
+      showResolutionDetailsButton.classList.remove("hidden");
+      showResolutionDetailsButton.disabled = false;
+      showResolutionDetailsButton.textContent = "Show resolution details";
+      submitAdminResolutionButton.disabled = false;
+      submitAdminResolutionButton.textContent = "Resolve escalation";
+      adminResolutionOutcome.value = "";
+      adminResolutionMessage.textContent = "";
+      setText("drawerResolutionPhone", "-");
+      setText("drawerResolutionEmail", "-");
+
+      if (drawer.admin_resolution_status) {
+        adminResolutionSection.classList.remove("hidden");
+        adminResolutionControls.classList.add("hidden");
+        adminResolutionExistingState.classList.remove("hidden");
+        adminResolutionExistingState.textContent = `Resolved from ${textOrDash(drawer.admin_resolution_source)} as ${formatAdminResolutionStatus(drawer.admin_resolution_status)}${drawer.admin_resolution_ts_utc ? ` on ${formatDateTime(drawer.admin_resolution_ts_utc)}` : ""}.`;
+        return;
+      }
+
+      if (drawer.admin_resolution_eligible === true) {
+        adminResolutionSection.classList.remove("hidden");
+      }
+    }
+
+    async function revealResolutionDetails() {
+      if (!activeDrawerLead || !activeDrawerLead.lead_id || resolutionDetailsLoaded) {
+        return;
+      }
+
+      showResolutionDetailsButton.disabled = true;
+      showResolutionDetailsButton.textContent = "Loading details...";
+      adminResolutionMessage.textContent = "";
+
+      try {
+        const params = new URLSearchParams({ lead_id: activeDrawerLead.lead_id });
+        const response = await fetch(`/.netlify/functions/control-tower-escalation-detail?${params.toString()}`, {
+          method: "GET",
+          headers: {
+            "Accept": "application/json"
+          }
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (!response.ok || result.ok !== true || !result.lead) {
+          adminResolutionMessage.textContent = result.error?.message || "Resolution details could not be loaded.";
+          showResolutionDetailsButton.disabled = false;
+          showResolutionDetailsButton.textContent = "Show resolution details";
+          return;
+        }
+
+        setText("drawerResolutionPhone", textOrDash(result.lead.phone));
+        setText("drawerResolutionEmail", textOrDash(result.lead.email));
+        resolutionDetailsPanel.classList.remove("hidden");
+        showResolutionDetailsButton.classList.add("hidden");
+        resolutionDetailsLoaded = true;
+      } catch (error) {
+        adminResolutionMessage.textContent = "Resolution details could not be loaded.";
+        showResolutionDetailsButton.disabled = false;
+        showResolutionDetailsButton.textContent = "Show resolution details";
+      }
+    }
+
+    async function submitAdminResolution() {
+      if (!activeDrawerLead || !activeDrawerLead.lead_id) {
+        return;
+      }
+
+      const selectedStatus = String(adminResolutionOutcome.value || "").trim();
+
+      if (!selectedStatus) {
+        adminResolutionMessage.textContent = "Select a resolution outcome before resolving the escalation.";
+        return;
+      }
+
+      submitAdminResolutionButton.disabled = true;
+      submitAdminResolutionButton.textContent = "Resolving...";
+      adminResolutionMessage.textContent = "";
+
+      try {
+        const response = await fetch("/.netlify/functions/control-tower-resolve-escalation", {
+          method: "POST",
+          headers: {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            lead_id: activeDrawerLead.lead_id,
+            admin_resolution_status: selectedStatus
+          })
+        });
+
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (parseError) {
+          result = {};
+        }
+
+        if (!response.ok || result.ok !== true) {
+          adminResolutionMessage.textContent = result.error?.message || "The escalation could not be resolved.";
+          submitAdminResolutionButton.disabled = false;
+          submitAdminResolutionButton.textContent = "Resolve escalation";
+          return;
+        }
+
+        adminResolutionMessage.textContent = "Escalation resolved. Refreshing dashboard...";
+        await loadDashboardData();
+      } catch (error) {
+        adminResolutionMessage.textContent = "The escalation could not be resolved.";
+        submitAdminResolutionButton.disabled = false;
+        submitAdminResolutionButton.textContent = "Resolve escalation";
+      }
     }
 
     function renderLifecycleEvents(events) {
@@ -875,6 +1065,19 @@
         .replace(/_/g, " ")
         .toLowerCase()
         .replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function formatAdminResolutionStatus(value) {
+      const normalized = String(value || "").trim().toUpperCase();
+
+      const labels = {
+        ADMIN_CONTACTED_APPOINTMENT_SET: "Contacted — Appointment Set",
+        ADMIN_CONTACTED_NOT_INTERESTED: "Contacted — Not Interested",
+        ADMIN_NO_ANSWER: "No Answer — Admin Attempted",
+        ADMIN_NO_ACTION: "No Action — Admin Closed"
+      };
+
+      return labels[normalized] || textOrDash(value);
     }
 
     function riskClassFor(label) {
@@ -975,6 +1178,8 @@
       updateFilterUi();
       loadDashboardData();
     });
+    showResolutionDetailsButton.addEventListener("click", revealResolutionDetails);
+    submitAdminResolutionButton.addEventListener("click", submitAdminResolution);
     drawerCloseButton.addEventListener("click", closeLeadDrawer);
     detailDrawerOverlay.addEventListener("click", (event) => {
       if (!event.target.closest("aside")) {
