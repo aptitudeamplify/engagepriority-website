@@ -135,9 +135,25 @@
             height: 100%;
             z-index: 0;
             pointer-events: none;
-            opacity: 0.38;
-            mix-blend-mode: screen;
-            background: transparent;
+            overflow: hidden;
+            opacity: 0.42;
+            background:
+                radial-gradient(circle at 12% 22%, rgba(148, 163, 184, 0.42) 0 1px, transparent 2px),
+                radial-gradient(circle at 28% 68%, rgba(148, 163, 184, 0.34) 0 1px, transparent 2px),
+                radial-gradient(circle at 44% 38%, rgba(96, 165, 250, 0.32) 0 1px, transparent 2px),
+                radial-gradient(circle at 63% 74%, rgba(148, 163, 184, 0.30) 0 1px, transparent 2px),
+                radial-gradient(circle at 82% 28%, rgba(96, 165, 250, 0.28) 0 1px, transparent 2px);
+            background-size: 220px 220px, 260px 260px, 300px 300px, 340px 340px, 380px 380px;
+            animation: hero-particles-drift 28s linear infinite;
+        }
+
+        @keyframes hero-particles-drift {
+            0% {
+                background-position: 0 0, 40px 20px, 80px 60px, 120px 90px, 160px 130px;
+            }
+            100% {
+                background-position: 220px -220px, 300px -240px, 380px -300px, 460px -340px, 540px -380px;
+            }
         }
 
         @media (max-width: 767px) {
@@ -711,7 +727,14 @@
             camera.position.z = 5;
 
             // Renderer
-            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            const renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true,
+                powerPreference: "high-performance"
+            });
+
+            renderer.setClearColor(0x000000, 0);
+            renderer.domElement.style.background = "transparent";
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
             container.appendChild(renderer.domElement);
@@ -788,36 +811,23 @@
                 renderer.render(scene, camera);
             }
 
-            function ensureAnimationRunning() {
-                if (animationFrameId === null) {
-                    animate();
-                }
-
-                syncRendererSize();
-            }
-
             animate();
 
             // Handle Resize
             window.addEventListener('resize', syncRendererSize);
+            
+            renderer.domElement.addEventListener("webglcontextlost", (event) => {
+                event.preventDefault();
+                animationFrameId = null;
+            }, false);
 
-            document.addEventListener('visibilitychange', () => {
-                if (!document.hidden) {
-                    ensureAnimationRunning();
-                }
-            });
-
-            window.addEventListener('focus', ensureAnimationRunning);
-
-            window.addEventListener('scroll', () => {
-                if (window.scrollY < window.innerHeight) {
-                    requestAnimationFrame(syncRendererSize);
-                }
-            }, { passive: true });
+            renderer.domElement.addEventListener("webglcontextrestored", () => {
+                syncRendererSize();
+            }, false);
         }
 
-        // Initialize ThreeJS after DOM load
-        window.addEventListener('DOMContentLoaded', initThreeJS);
+        // Three.js hero particles disabled in favor of CSS-only background animation.
+        // window.addEventListener('DOMContentLoaded', initThreeJS);
     </script>
 </body>
 </html>
