@@ -113,6 +113,26 @@
       color: #0e7490 !important;
     }
 
+    .summary-card-active {
+      border-color: #0284c7 !important;
+      background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%) !important;
+      box-shadow: 0 22px 55px rgba(2, 132, 199, 0.16);
+    }
+
+    .summary-card-active .summary-card-label {
+      color: #1e3a5f !important;
+    }
+
+    .summary-card-active .summary-card-value {
+      color: #075985 !important;
+    }
+
+    .compact-summary-active {
+      border-color: #0284c7 !important;
+      background: #eff6ff !important;
+      color: #075985 !important;
+    }
+
     .control-context-sticky {
       position: sticky;
       top: 5rem;
@@ -559,7 +579,12 @@
 
       document.querySelectorAll("[data-summary-filter]").forEach((button) => {
         const isActive = button.dataset.summaryFilter === currentSummaryFilter;
-        button.classList.toggle("filter-button-active", isActive);
+        const isSummaryCard = button.classList.contains("summary-card");
+        const isCompactSummary = button.classList.contains("compact-summary-button");
+
+        button.classList.toggle("summary-card-active", isActive && isSummaryCard);
+        button.classList.toggle("compact-summary-active", isActive && isCompactSummary);
+        button.classList.toggle("filter-button-active", isActive && !isSummaryCard && !isCompactSummary);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
     }
@@ -652,18 +677,18 @@
         const card = document.createElement("button");
         card.type = "button";
         card.className = [
-          "card rounded-2xl p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg",
-          isActive ? "border-cyan-500 bg-cyan-50" : ""
+          "summary-card card rounded-2xl p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg",
+          isActive ? "summary-card-active" : ""
         ].filter(Boolean).join(" ");
         card.dataset.summaryFilter = apiKey;
         card.setAttribute("aria-pressed", isActive ? "true" : "false");
 
         const labelElement = document.createElement("p");
-        labelElement.className = "mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500";
+        labelElement.className = "summary-card-label mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500";
         labelElement.textContent = label;
 
         const valueElement = document.createElement("p");
-        valueElement.className = "text-3xl font-bold text-slate-950";
+        valueElement.className = "summary-card-value text-3xl font-bold text-slate-950";
         valueElement.textContent = String(value);
 
         card.appendChild(labelElement);
@@ -672,7 +697,10 @@
 
         const compactButton = document.createElement("button");
         compactButton.type = "button";
-        compactButton.className = "compact-summary-button btn-secondary rounded-full px-3 py-2 text-xs font-semibold text-slate-700";
+        compactButton.className = [
+          "compact-summary-button btn-secondary rounded-full px-3 py-2 text-xs font-semibold text-slate-700",
+          isActive ? "compact-summary-active" : ""
+        ].filter(Boolean).join(" ");
         compactButton.dataset.summaryFilter = apiKey;
         compactButton.setAttribute("aria-pressed", isActive ? "true" : "false");
         compactButton.textContent = `${shortLabel}: ${value}`;
