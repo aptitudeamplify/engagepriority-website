@@ -26,8 +26,12 @@
 
         /* Animated Background Gradient */
         .gradient-bg {
-            background: radial-gradient(circle at 50% 45%, rgba(59, 130, 246, 0.08) 0%, rgba(15, 23, 42, 1) 68%);
+            background:
+                radial-gradient(circle at 50% 50%, rgba(59, 130, 246, 0.18) 0%, rgba(15, 23, 42, 0.96) 62%),
+                linear-gradient(135deg, #0f172a 0%, #111827 48%, #07111f 100%);
+            background-color: #0f172a;
             animation: pulse-gradient 8s ease-in-out infinite alternate;
+            isolation: isolate;
         }
 
         @keyframes pulse-gradient {
@@ -126,14 +130,14 @@
         /* ThreeJS Canvas Container */
         #canvas-container {
             position: absolute;
-            top: 0;
-            left: 0;
+            inset: 0;
             width: 100%;
             height: 100%;
             z-index: 0;
             pointer-events: none;
-            opacity: 0.22;
+            opacity: 0.38;
             mix-blend-mode: screen;
+            background: transparent;
         }
 
         @media (max-width: 767px) {
@@ -752,9 +756,17 @@
 
             // Animation Loop
             const clock = new THREE.Clock();
+            let animationFrameId = null;
+
+            function syncRendererSize() {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.render(scene, camera);
+            }
 
             function animate() {
-                requestAnimationFrame(animate);
+                animationFrameId = requestAnimationFrame(animate);
                 const elapsedTime = clock.getElapsedTime();
 
                 // Smooth mouse follow
@@ -776,14 +788,32 @@
                 renderer.render(scene, camera);
             }
 
+            function ensureAnimationRunning() {
+                if (animationFrameId === null) {
+                    animate();
+                }
+
+                syncRendererSize();
+            }
+
             animate();
 
             // Handle Resize
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
+            window.addEventListener('resize', syncRendererSize);
+
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    ensureAnimationRunning();
+                }
             });
+
+            window.addEventListener('focus', ensureAnimationRunning);
+
+            window.addEventListener('scroll', () => {
+                if (window.scrollY < window.innerHeight) {
+                    requestAnimationFrame(syncRendererSize);
+                }
+            }, { passive: true });
         }
 
         // Initialize ThreeJS after DOM load
