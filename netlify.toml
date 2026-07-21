@@ -1,20 +1,15 @@
-[[redirects]]
-  from = "/login"
-  to = "/login.html"
-  status = 200
+[build]
+  publish = "uat-static"
+  functions = "uat-disabled"
+  edge_functions = "uat-disabled"
 
 [[redirects]]
-  from = "/control-tower"
-  to = "/control-tower.html"
+  from = "/*"
+  to = "/index.html"
   status = 200
 
-[[redirects]]
-  from = "/a/:short_code"
-  to = "/.netlify/functions/handle-action?short_code=:short_code"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/x/:short_code"
-  to = "/.netlify/functions/handle-action?short_code=:short_code"
-  status = 200
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-store"
+    X-Robots-Tag = "noindex, nofollow"
