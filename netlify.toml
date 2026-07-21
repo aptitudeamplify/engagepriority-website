@@ -1,4 +1,5 @@
 [build]
+  command = "printf 'Stage 0D static artifact only\\n'"
   publish = "uat-static"
   functions = "uat-disabled"
   edge_functions = "uat-disabled"
