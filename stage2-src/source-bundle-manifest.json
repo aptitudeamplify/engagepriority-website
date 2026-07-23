@@ -1,0 +1,34 @@
+{
+  "bundle_id": "EP020_STAGE2_WEBSITE_SOURCE_BUNDLE_V1",
+  "bundle_format": "deterministic tar.gz encoded as seven ordered base64 text parts",
+  "archive_sha256": "70c1e4f095c9b100511b7dda1b14186196599881a32a223f2db21762e80fd6de",
+  "archive_bytes": 18634,
+  "ordered_parts": [
+    "source-bundle-parts/part-01.b64part",
+    "source-bundle-parts/part-02.b64part",
+    "source-bundle-parts/part-03.b64part",
+    "source-bundle-parts/part-04.b64part",
+    "source-bundle-parts/part-05.b64part",
+    "source-bundle-parts/part-06.b64part",
+    "source-bundle-parts/part-07.b64part"
+  ],
+  "source_files_sha256": {
+    "src/policy-semantic-engine.js": "66b89ae78002449571fa8b4b050b56cb106b8e178efc47a735e5299838141a6f",
+    "src/stage1-row-adapter.js": "4b21976ee12341383b35d358c9c91c8c5227bf3998b2e91815152e4888123a69",
+    "src/operator-proposals.js": "310061a4ad9ad6809a6e0e728147c91413e9faa8c8bdc83cd3eb4b01a7c9f064",
+    "fixtures/policies.v1.json": "f7405b74a8e70673968104464c2dc0cf507aae388023b0e4e9b0cd752e5b4979",
+    "fixtures/legacy-baseline-fixtures.v1.json": "fcddc4f529683575e87f1e9f321b8be5327312d09adb6b76b17ffedd731ab306",
+    "fixtures/fixture-mapping.v1.json": "30d1ccfe03784d214c990ba0da876670fdc736bd8241a98ebb0d830227403fac",
+    "test/run-stage2-tests.js": "e1fd00f598204d2f909facbf6c3f3bfca0828ea595af8b54dda68298fce91c6b",
+    "package.json": "ea0898e4325983e507f6c8150617d32106839e60e9161484c56968df41363c61"
+  },
+  "validation": {
+    "semantic_cases": 66,
+    "semantic_assertions": 116,
+    "package_checks": 41,
+    "final_status": "PASS"
+  },
+  "deployment_allowed": false,
+  "provider_connection_allowed": false,
+  "stage3_behavior_allowed": false
+}
