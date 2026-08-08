@@ -28,10 +28,7 @@
       margin: 0;
       min-height: 100vh;
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at 12% 0%, rgba(15,118,110,.15), transparent 26rem),
-        radial-gradient(circle at 88% 0%, rgba(31,58,95,.12), transparent 30rem),
-        var(--page);
+      background: radial-gradient(circle at 12% 0%, rgba(15,118,110,.15), transparent 26rem), radial-gradient(circle at 88% 0%, rgba(31,58,95,.12), transparent 30rem), var(--page);
       color: var(--ink);
     }
     button { font: inherit; }
@@ -68,8 +65,8 @@
     .view-note { color: var(--muted); font-size: .88rem; }
     .legend { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
     .legend-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.82); color: #405069; font-size: .78rem; font-weight: 750; }
-    .legend-chip.dark { background: #263f62; color: #fff; border-color: #1f3a5f; }
     .legend-dot { width: 13px; height: 13px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); }
+    .legend-chip.dark { background: #263f62; color: #fff; border-color: #1f3a5f; }
     .stage-stack, .agent-stack { display: grid; gap: 15px; }
     .row-panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 16px 44px rgba(15,23,42,.08); overflow: hidden; }
     .row-panel.escalated { border-color: #ffc2c2; box-shadow: 0 18px 48px rgba(185,28,28,.13); }
@@ -122,8 +119,8 @@
     .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .card-agent { display: block; }
     .agent-mode .card-agent, .side-agent .card-agent { display: none; }
-    .minimal-indicator { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin: 0 0 14px; padding: 8px 11px; border: 1px solid #c9d7e8; border-radius: 999px; background: rgba(255,255,255,.82); color: #42526a; font-size: .82rem; font-weight: 800; }
     .empty-state { margin: 4px 18px 18px; padding: 18px; border: 1px dashed var(--line); border-radius: 18px; color: var(--muted); background: rgba(255,255,255,.64); font-weight: 700; }
+    .minimal-indicator { margin-bottom: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.75); color: var(--muted); font-size: .82rem; font-weight: 800; width: fit-content; }
     .row-panel.business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
     .overlay { position: fixed; inset: 0; z-index: 80; display: none; padding: 5vh 5vw; background: rgba(15,23,42,.46); backdrop-filter: blur(6px); }
     .overlay.open { display: grid; place-items: center; }
@@ -146,36 +143,38 @@
     .resolution-actions button { border: 1px solid #f3b5b5; border-radius: 14px; background: white; padding: 9px 11px; color: #7f1d1d; font-weight: 850; cursor: pointer; text-align: left; }
     .contact-hidden { padding: 12px; border: 1px dashed #e99b9b; border-radius: 16px; background: #fff; color: #7f1d1d; font-weight: 750; }
     .boundary { margin: 18px 2px 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
-    @media (max-width: 1150px) { .cards-track { grid-auto-columns: clamp(160px, 22%, 220px); } }
-    @media (max-width: 760px) { .topbar, .viewbar, .row-head { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(150px, 44%, 210px); } .workspace-body { grid-template-columns: 1fr; } }
-    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1540px); padding-top: 8px; } .review-pill { white-space: normal; } .workspace { width: 100vw; height: 100vh; border-radius: 0; } .overlay { padding: 0; } .detail-grid { grid-template-columns: 1fr; } .summary-strip { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 900px) { .topbar, .viewbar { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .workspace-body { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1540px); padding-top: 8px; } .review-pill { white-space: normal; } .summary-strip { grid-template-columns: 1fr 1fr; } .row-head, .workspace-head { flex-direction: column; align-items: flex-start; } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(160px, 72vw, 216px); } .overlay { padding: 0; } .workspace { width: 100vw; height: 100vh; border-radius: 0; } .workspace-body { padding: 14px; } .detail-grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
 <body>
   <div class="shell">
-    <header class="topbar" aria-label="Control Tower header">
-      <div class="brand"><div class="brand-mark" aria-hidden="true">EP</div><div><p class="eyebrow">Control Tower</p><h1>Active lead command center</h1></div></div>
-      <span class="review-pill">Design prototype / mock active work</span>
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">EP</div><div><p class="eyebrow">Control Tower</p><h1>Active lead command view</h1></div></div>
+      <span class="review-pill">Design review prototype</span>
     </header>
 
     <section class="summary-strip" id="summaryStrip" aria-label="Operational summary"></section>
 
     <section class="viewbar" aria-label="View controls">
-      <div class="view-tabs" aria-label="Control Tower views">
-        <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
-        <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
-        <button class="view-tab" type="button" data-view="side" aria-pressed="false">Side-by-Side View</button>
+      <div>
+        <div class="view-tabs">
+          <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
+          <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
+          <button class="view-tab" type="button" data-view="side" aria-pressed="false">Side-by-Side View</button>
+        </div>
       </div>
-      <div class="window-tabs" aria-label="Service window visual state">
+      <div class="window-tabs" aria-label="Service window preview">
         <button class="window-tab" type="button" data-window="open" aria-pressed="true">Business Hours</button>
         <button class="window-tab" type="button" data-window="closed" aria-pressed="false">Outside Hours</button>
       </div>
+      <div class="view-note">Current active work only.</div>
     </section>
 
     <div class="legend" id="legend" aria-label="Lifecycle legend"></div>
-    <main id="workspace" aria-live="polite"></main>
-    <p class="boundary">This mockup represents current active work only. Historical reporting belongs in Analytics. The service-window control is included only to review the two visual states.</p>
+    <main id="workspace"></main>
+    <p class="boundary">Prototype review aid only. It uses inline mock data and does not connect to live systems.</p>
   </div>
 
   <div class="overlay" id="leadOverlay" aria-hidden="true">
@@ -187,7 +186,7 @@
       <div class="workspace-body">
         <div class="detail-panel"><h3>Lead summary</h3><div class="detail-grid" id="summaryDetail"></div></div>
         <div class="detail-panel"><h3>Current status</h3><div class="detail-grid" id="statusDetail"></div></div>
-        <div class="detail-panel"><h3>Assigned agent</h3><div class="detail-grid" id="agentDetail"></div></div>
+        <div class="detail-panel"><h3>Assigned-agent context</h3><div class="detail-grid" id="agentDetail"></div></div>
         <div class="detail-panel"><h3>Lifecycle history</h3><div class="timeline" id="timelineDetail"></div></div>
         <div class="detail-panel" id="resolutionPanel"></div>
       </div>
@@ -196,40 +195,39 @@
 
   <script>
     "use strict";
-
-    const lifecycleOrder = ["Waiting for Business Hours", "New", "Reminder Sent", "Waiting for Outcome Response", "At Risk", "Escalated to Admin", "Resolved"];
     const lifecycle = {
-      "Waiting for Business Hours": { color: "#1F3A5F", description: "Held until the service window opens", dark: true },
-      "New": { color: "#BFFBB6", description: "Fresh initial response cycle" },
-      "Reminder Sent": { color: "#D9EEFF", description: "Reminder active" },
-      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Contact attempt started, outcome pending" },
-      "At Risk": { color: "#FFF0B8", description: "Final reminder window" },
+      "Waiting for Business Hours": { color: "#1F3A5F", dark: true, description: "Held until the service window opens" },
+      "New": { color: "#BFFBB6", description: "Fresh lead awaiting first response" },
+      "Reminder Sent": { color: "#D9EEFF", description: "Reminder sequence is active" },
+      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Agent started contact and outcome is pending" },
+      "At Risk": { color: "#FFF0B8", description: "Final reminder window is active" },
       "Escalated to Admin": { color: "#FFD6D6", description: "Administrator attention required" },
-      "Resolved": { color: "#E9EDF2", description: "Closed history state" }
+      "Resolved": { color: "#E9EDF2", description: "Closed or completed lifecycle" }
     };
+    const lifecycleOrder = ["Escalated to Admin", "Waiting for Business Hours", "New", "Reminder Sent", "Waiting for Outcome Response", "At Risk"];
     const agents = {
-      admin: { id: "admin", name: "Administrator", initials: "AD", avgResponse: "-", reassignments: "-", admin: true },
-      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "11m", reassignments: 2, portrait: "portrait-maya" },
-      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "16m", reassignments: 1, portrait: "portrait-jordan" },
-      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "18m", reassignments: 0 },
-      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "14m", reassignments: 3, portrait: "portrait-sofia" }
+      admin: { id: "admin", name: "Administrator", initials: "AD", admin: true, avgResponse: "-", reassignments: 0 },
+      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "12m", reassignments: 1, portrait: "portrait-maya" },
+      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "18m", reassignments: 2, portrait: "portrait-jordan" },
+      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "15m", reassignments: 0 },
+      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "19m", reassignments: 1, portrait: "portrait-sofia" }
     };
     const leads = [
-      { id: "L-2200", name: "Bethany Clark", phone: "(832) ***-4802", submitted: "Today, 6:18 AM", sort: 618, agent: null, stage: "Waiting for Business Hours", context: "Held until service opens", source: "Website Form", events: [["6:18 AM", "Lead received outside business hours"], ["6:18 AM", "Held for service window release"]] },
-      { id: "L-2198", name: "Rafael Gomez", phone: "(713) ***-6420", submitted: "Today, 6:44 AM", sort: 644, agent: null, stage: "Waiting for Business Hours", context: "Release at opening", source: "Referral Partner", events: [["6:44 AM", "Lead received outside business hours"], ["6:44 AM", "Waiting for business hours"]] },
-      { id: "L-2201", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
-      { id: "L-2202", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
+      { id: "L-2201", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead received and assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
+      { id: "L-2202", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead received and assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
+      { id: "L-2195", name: "Bianca Wells", phone: "(346) ***-1510", submitted: "Yesterday, 10:48 PM", sort: 1048, agent: "", stage: "Waiting for Business Hours", context: "Held until service opens", source: "Website Form", events: [["10:48 PM", "Lead received outside business hours"], ["10:48 PM", "Held for service window release"]] },
+      { id: "L-2196", name: "Mateo Santos", phone: "(281) ***-7780", submitted: "Today, 6:12 AM", sort: 612, agent: "", stage: "Waiting for Business Hours", context: "Held until service opens", source: "Referral Partner", events: [["6:12 AM", "Lead received outside business hours"], ["6:12 AM", "Held for service window release"]] },
       { id: "L-2203", name: "Priya Nair", phone: "(281) ***-4278", submitted: "Today, 8:36 AM", sort: 836, agent: "alex", stage: "At Risk", context: "Final reminder due now", source: "Website Form", events: [["8:36 AM", "Lead assigned to Alex Kim"], ["8:51 AM", "Reminder sent"], ["9:06 AM", "Final reminder window started"]] },
       { id: "L-2204", name: "Daniel Foster", phone: "(346) ***-5904", submitted: "Today, 8:48 AM", sort: 848, agent: "sofia", stage: "At Risk", context: "Final reminder in 4 min", source: "Realtor.com", events: [["8:48 AM", "Lead assigned to Sofia Grant"], ["9:03 AM", "Reminder sent"], ["9:18 AM", "At-risk state reached"]] },
-      { id: "L-2205", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent started call"], ["9:07 AM", "Waiting for outcome response"]] },
+      { id: "L-2205", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Agent started call, outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent selected Call Now"], ["9:07 AM", "Waiting for outcome response"]] },
       { id: "L-2206", name: "Marcus Bell", phone: "(409) ***-2150", submitted: "Today, 9:02 AM", sort: 902, agent: "jordan", stage: "Waiting for Outcome Response", context: "Outcome follow-up due soon", source: "Facebook Lead Ad", events: [["9:02 AM", "Lead assigned to Jordan Lee"], ["9:05 AM", "Agent started contact attempt"], ["9:10 AM", "Outcome follow-up active"]] },
-      { id: "L-2207", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder sent"]] },
+      { id: "L-2207", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder 1 active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder 1 sent"]] },
       { id: "L-2208", name: "Owen Price", phone: "(281) ***-8901", submitted: "Today, 9:09 AM", sort: 909, agent: "sofia", stage: "New", context: "Fresh cycle after reassignment", source: "Website Form", reassignedHistory: true, events: [["8:54 AM", "Original agent selected Reassign"], ["9:09 AM", "Lead reassigned to Sofia Grant"], ["9:09 AM", "Fresh initial-response cycle started"]] },
       { id: "L-2209", name: "Liam Chen", phone: "(713) ***-3487", submitted: "Today, 9:14 AM", sort: 914, agent: "maya", stage: "New", context: "Initial response pending", source: "Referral Partner", events: [["9:14 AM", "Lead received"], ["9:14 AM", "Assigned to Maya Torres"]] },
       { id: "L-2210", name: "Grace Morgan", phone: "(346) ***-7322", submitted: "Today, 9:18 AM", sort: 918, agent: "jordan", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:18 AM", "Lead received"], ["9:18 AM", "Assigned to Jordan Lee"]] },
-      { id: "L-2211", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
+      { id: "L-2211", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder 1 in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
       { id: "L-2212", name: "Hannah Ruiz", phone: "(281) ***-3810", submitted: "Today, 9:24 AM", sort: 924, agent: "sofia", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:24 AM", "Lead received"], ["9:24 AM", "Assigned to Sofia Grant"]] },
-      { id: "L-2199", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed history state", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
+      { id: "L-2199", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed, available for history", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
     ];
 
     let currentView = "lifecycle";
@@ -241,9 +239,9 @@
     const closeOverlay = document.getElementById("closeOverlay");
 
     function esc(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
-    function agentFor(id) { return agents[id] || { id: "unassigned", name: "Unassigned", initials: "--", avgResponse: "-", reassignments: 0 }; }
-    function waitingLeads() { return leads.filter((lead) => !lead.inactive && lead.stage === "Waiting for Business Hours"); }
-    function openWindowLeads() { return leads.filter((lead) => !lead.inactive && lead.stage !== "Waiting for Business Hours"); }
+    function agentFor(id) { return agents[id] || { id: "unassigned", name: "Pending release", initials: "--", avgResponse: "-", reassignments: 0 }; }
+    function waitingLeads() { return serviceWindowOpen ? [] : leads.filter((lead) => !lead.inactive && lead.stage === "Waiting for Business Hours"); }
+    function openWindowLeads() { return leads.filter((lead) => !lead.inactive && lead.stage !== "Waiting for Business Hours" && lead.stage !== "Resolved"); }
     function closedWindowLeads() { return leads.filter((lead) => !lead.inactive && (lead.stage === "Waiting for Business Hours" || lead.stage === "Escalated to Admin")); }
     function activeLeads() { return serviceWindowOpen ? openWindowLeads() : closedWindowLeads(); }
 
@@ -251,7 +249,7 @@
       const data = activeLeads();
       const escalated = data.filter((lead) => lead.stage === "Escalated to Admin").length;
       const risk = data.filter((lead) => lead.stage === "At Risk").length;
-      const metrics = [["Active Leads", data.length], ["At Risk", risk], ["Escalated to Admin", escalated], ["Avg. Response Time", serviceWindowOpen ? "16m" : "-" ]];
+      const metrics = [["Active Leads", data.length], ["At Risk", risk], ["Escalated to Admin", escalated], ["Avg. Response Time", serviceWindowOpen ? "16m" : "-"]];
       summaryStrip.innerHTML = metrics.map(([label, value]) => `<article class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`).join("");
     }
 
@@ -294,7 +292,7 @@
       const data = activeLeads();
       const rows = lifecycleOrder.map((stage) => {
         const info = lifecycle[stage];
-        const items = stage === "Resolved" ? [] : data.filter((lead) => lead.stage === stage);
+        const items = stage === "Waiting for Business Hours" ? waitingLeads() : data.filter((lead) => lead.stage === stage);
         const title = stage === "Escalated to Admin" ? "Exceptions / Escalated-to-Admin" : stage;
         const emptyText = stage === "Waiting for Business Hours" && serviceWindowOpen ? "Business hours are open. No leads are currently being held for release." : "No active leads in this stage.";
         return renderRow({
@@ -316,9 +314,7 @@
     }
 
     function renderAgentRow(agent, items, mode) {
-      const metrics = agent.admin
-        ? `<span class="agent-metric">Escalated Leads: ${items.length}</span>`
-        : `<span class="agent-metric">Avg. Response: ${esc(agent.avgResponse)}</span><span class="agent-metric">Reassignments: ${esc(agent.reassignments)}</span>`;
+      const metrics = agent.admin ? `<span class="agent-metric">Escalated Leads: ${items.length}</span>` : `<span class="agent-metric">Avg. Response: ${esc(agent.avgResponse)}</span><span class="agent-metric">Reassignments: ${esc(agent.reassignments)}</span>`;
       const cards = [...items].sort((a, b) => a.sort - b.sort).map((lead) => renderLeadCard(lead, mode)).join("");
       return `<section class="row-panel ${agent.admin ? "escalated" : ""}">
         <header class="row-head"><div class="row-title">${renderAgentHeader(agent, items.length)}</div><div class="agent-metrics">${metrics}</div></header>
@@ -327,7 +323,7 @@
     }
 
     function renderWaitingQueueRow(mode) {
-      const items = serviceWindowOpen ? [] : waitingLeads();
+      const items = waitingLeads();
       return renderRow({
         title: "Waiting for Business Hours",
         subtitle: `${items.length} lead${items.length === 1 ? "" : "s"} held until service opens.`,
@@ -335,7 +331,7 @@
         dot: `<div class="avatar queue" aria-hidden="true">☾</div>`,
         businessHours: true,
         mode,
-        emptyText: "Business hours are open. No leads are currently being held for release."
+        emptyText: "No leads are currently being held for release."
       });
     }
 
@@ -347,14 +343,14 @@
       if (escalated.length) rows.push(renderAgentRow(agents.admin, escalated, mode));
 
       if (serviceWindowOpen) {
-        const waitingCount = waitingLeads().length;
-        rows.push(`<div class="minimal-indicator">Waiting for Business Hours: ${waitingCount ? `${waitingCount} held lead${waitingCount === 1 ? "" : "s"}` : "empty"}</div>`);
+        rows.push(`<div class="minimal-indicator">Waiting for Business Hours: empty</div>`);
         [agents.maya, agents.jordan, agents.alex, agents.sofia].forEach((agent) => {
           const items = data.filter((lead) => lead.agent === agent.id);
           if (items.length) rows.push(renderAgentRow(agent, items, mode));
         });
       } else {
-        if (waitingLeads().length) rows.push(renderWaitingQueueRow(mode));
+        const held = waitingLeads();
+        if (held.length) rows.push(renderWaitingQueueRow(mode));
       }
 
       if (!rows.length) rows.push(`<div class="empty-state">No active queues need attention.</div>`);
