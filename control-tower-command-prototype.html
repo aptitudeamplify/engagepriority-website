@@ -15,6 +15,8 @@
       --brand: #0f766e;
       --brand-soft: #e7fbf7;
       --shadow: 0 18px 50px rgba(15,23,42,.11);
+      --waiting-hours: #1F3A5F;
+      --waiting-hours-soft: #dbe7f5;
       --new: #BFFBB6;
       --reminder: #D9EEFF;
       --outcome: #E8E0FF;
@@ -29,12 +31,12 @@
       font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background:
         radial-gradient(circle at 12% 0%, rgba(15,118,110,.15), transparent 26rem),
-        radial-gradient(circle at 88% 0%, rgba(99,102,241,.10), transparent 28rem),
+        radial-gradient(circle at 88% 0%, rgba(31,58,95,.12), transparent 30rem),
         var(--page);
       color: var(--ink);
     }
-    button, select { font: inherit; }
-    .shell { width: min(1520px, calc(100% - 28px)); margin: 0 auto; padding: 18px 0 54px; }
+    button { font: inherit; }
+    .shell { width: min(1540px, calc(100% - 28px)); margin: 0 auto; padding: 18px 0 54px; }
     .topbar {
       position: sticky;
       top: 12px;
@@ -57,7 +59,7 @@
     h1 { margin-bottom: 0; font-size: clamp(1.5rem, 3vw, 2.35rem); letter-spacing: -.045em; }
     .review-pill { padding: 9px 12px; border: 1px solid #b7ddd7; border-radius: 999px; background: var(--brand-soft); color: #0f5f59; font-size: .82rem; font-weight: 800; white-space: nowrap; }
     .summary-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 18px 0; }
-    .metric { min-height: 82px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); box-shadow: 0 10px 30px rgba(15,23,42,.06); }
+    .metric { min-height: 80px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); box-shadow: 0 10px 30px rgba(15,23,42,.06); }
     .metric span { display: block; margin-bottom: 7px; color: var(--muted); font-size: .7rem; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
     .metric strong { display: block; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.05em; }
     .viewbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 12px 35px rgba(15,23,42,.07); }
@@ -68,44 +70,61 @@
     .legend { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
     .legend-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.82); color: #405069; font-size: .78rem; font-weight: 750; }
     .legend-dot { width: 13px; height: 13px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); }
+    .legend-chip.dark { background: #263f62; color: #fff; border-color: #1f3a5f; }
     .stage-stack, .agent-stack { display: grid; gap: 15px; }
     .row-panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 16px 44px rgba(15,23,42,.08); overflow: hidden; }
     .row-panel.escalated { border-color: #ffc2c2; box-shadow: 0 18px 48px rgba(185,28,28,.13); }
+    .row-panel.business-hours { border-color: #334e74; box-shadow: 0 18px 48px rgba(31,58,95,.16); }
     .row-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 15px 18px 8px; }
     .row-title { display: flex; align-items: center; gap: 11px; min-width: 0; }
     .stage-dot { width: 14px; height: 14px; border-radius: 999px; border: 1px solid rgba(15,23,42,.16); flex: 0 0 auto; }
     .row-head h2 { margin: 0; font-size: clamp(1.05rem, 1.8vw, 1.4rem); letter-spacing: -.035em; }
     .row-subtext { color: var(--muted); font-size: .86rem; font-weight: 650; }
     .agent-headline { display: flex; align-items: center; gap: 12px; }
-    .avatar { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; color: white; font-weight: 900; background: linear-gradient(145deg, #0f766e, #7c3aed); box-shadow: inset 0 0 0 2px rgba(255,255,255,.35); overflow: hidden; }
+    .avatar { width: 48px; height: 48px; border-radius: 17px; display: grid; place-items: center; color: white; font-weight: 900; background: linear-gradient(145deg, #0f766e, #7c3aed); box-shadow: inset 0 0 0 2px rgba(255,255,255,.35), 0 10px 22px rgba(15,23,42,.13); overflow: hidden; flex: 0 0 auto; }
     .avatar.admin { background: linear-gradient(145deg, #991b1b, #fb7185); }
+    .avatar.hold { background: linear-gradient(145deg, #1f3a5f, #0f172a); }
+    .portrait-photo { position: relative; background: linear-gradient(145deg, #e7eef8, #f9fbff); color: transparent; }
+    .portrait-photo::before { content: ""; position: absolute; inset: 6px 8px 9px; border-radius: 14px; background: var(--portrait-bg); box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
+    .portrait-photo::after { content: ""; position: absolute; left: 15px; top: 9px; width: 18px; height: 18px; border-radius: 999px; background: var(--portrait-face); box-shadow: 0 18px 0 7px var(--portrait-face), 0 3px 0 9px var(--portrait-hair); }
+    .portrait-maya { --portrait-bg: linear-gradient(160deg, #9ccfd1, #effaf8 70%); --portrait-face: #bd7b55; --portrait-hair: #1f2937; }
+    .portrait-jordan { --portrait-bg: linear-gradient(160deg, #a8c7ff, #f4f7ff 72%); --portrait-face: #8b5e3c; --portrait-hair: #2f241f; }
+    .portrait-sofia { --portrait-bg: linear-gradient(160deg, #f7b3bd, #fff6f8 72%); --portrait-face: #d49a6a; --portrait-hair: #5b2b22; }
     .agent-metrics { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
     .agent-metric { padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #405069; font-size: .78rem; font-weight: 800; }
     .carousel { position: relative; }
-    .cards-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(188px, 15.8%, 235px); gap: 11px; overflow-x: auto; padding: 5px 18px 18px; scroll-behavior: smooth; scrollbar-width: thin; }
-    .side-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+    .cards-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(170px, 15.8%, 225px); gap: 11px; overflow-x: auto; padding: 5px 18px 18px; scroll-behavior: smooth; scrollbar-width: thin; }
+    .side-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(430px, 100%), 1fr)); gap: 14px; align-items: start; }
     .side-pane { min-width: 0; }
-    .side-pane .cards-track { grid-auto-columns: clamp(168px, 31%, 220px); gap: 9px; padding-inline: 14px; }
+    .side-pane .cards-track { grid-auto-columns: clamp(132px, 31%, 186px); gap: 9px; padding-inline: 14px; }
     .side-pane .row-head { padding-inline: 14px; }
     .side-pane .row-subtext { display: none; }
+    .side-pane .agent-metrics { display: none; }
     .rail-arrow { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5; width: 38px; height: 58px; border: 1px solid rgba(15,23,42,.12); border-radius: 18px; background: rgba(255,255,255,.88); color: #18324c; font-size: 1.7rem; line-height: 1; font-weight: 900; box-shadow: 0 12px 30px rgba(15,23,42,.16); cursor: pointer; display: none; }
     .rail-arrow.visible { display: grid; place-items: center; }
     .rail-arrow.left { left: 8px; }
     .rail-arrow.right { right: 8px; }
-    .lead-card { width: 100%; min-height: 156px; border: 1px solid rgba(15,23,42,.13); border-radius: 20px; padding: 13px; text-align: left; color: #182238; box-shadow: 0 12px 26px rgba(15,23,42,.08); cursor: pointer; display: grid; align-content: space-between; gap: 10px; }
+    .lead-card { width: 100%; min-height: 148px; border: 1px solid rgba(15,23,42,.13); border-radius: 20px; padding: 13px; text-align: left; color: #182238; box-shadow: 0 12px 26px rgba(15,23,42,.08); cursor: pointer; display: grid; align-content: space-between; gap: 9px; }
     .lead-card:hover, .lead-card:focus-visible { outline: 3px solid rgba(8,145,178,.25); transform: translateY(-1px); }
+    .lead-card[data-stage="Waiting for Business Hours"] { background: var(--waiting-hours); color: white; border-color: #20334f; }
+    .lead-card[data-stage="Waiting for Business Hours"] .lead-name { color: white; font-weight: 900; }
+    .lead-card[data-stage="Waiting for Business Hours"] .lead-meta { color: #edf5ff; }
+    .lead-card[data-stage="Waiting for Business Hours"] .context { color: white; border-color: rgba(255,255,255,.22); }
+    .lead-card[data-stage="Waiting for Business Hours"] .status-line { color: white; border-color: rgba(255,255,255,.30); background: rgba(255,255,255,.12); }
     .lead-card[data-stage="New"] { background: var(--new); }
     .lead-card[data-stage="Reminder Sent"] { background: var(--reminder); }
     .lead-card[data-stage="Waiting for Outcome Response"] { background: var(--outcome); }
     .lead-card[data-stage="At Risk"] { background: var(--risk); }
     .lead-card[data-stage="Escalated to Admin"] { background: var(--escalated); }
     .lead-card[data-stage="Resolved"] { background: var(--resolved); }
-    .lead-name { margin: 0 0 5px; font-size: 1.02rem; line-height: 1.15; letter-spacing: -.025em; }
-    .lead-meta { display: grid; gap: 3px; color: #344358; font-size: .82rem; line-height: 1.25; }
-    .context { border-top: 1px solid rgba(15,23,42,.12); padding-top: 8px; color: #24344a; font-size: .81rem; font-weight: 750; line-height: 1.26; }
-    .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.55); color: #25344a; font-size: .68rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .lead-name { margin: 0 0 5px; font-size: 1rem; line-height: 1.14; letter-spacing: -.025em; }
+    .lead-meta { display: grid; gap: 3px; color: #344358; font-size: .8rem; line-height: 1.24; }
+    .context { border-top: 1px solid rgba(15,23,42,.12); padding-top: 8px; color: #24344a; font-size: .8rem; font-weight: 750; line-height: 1.25; }
+    .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .card-agent { display: block; }
     .agent-mode .card-agent, .side-agent .card-agent { display: none; }
+    .empty-state { margin: 4px 18px 18px; padding: 18px; border: 1px dashed var(--line); border-radius: 18px; color: var(--muted); background: rgba(255,255,255,.64); font-weight: 700; }
+    .row-panel.business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
     .overlay { position: fixed; inset: 0; z-index: 80; display: none; padding: 5vh 5vw; background: rgba(15,23,42,.46); backdrop-filter: blur(6px); }
     .overlay.open { display: grid; place-items: center; }
     .workspace { width: min(1180px, 84vw); height: min(820px, 84vh); overflow: auto; border: 1px solid rgba(255,255,255,.5); border-radius: 32px; background: rgba(255,255,255,.96); box-shadow: 0 30px 90px rgba(15,23,42,.32); }
@@ -127,69 +146,47 @@
     .resolution-actions button { border: 1px solid #f3b5b5; border-radius: 14px; background: white; padding: 9px 11px; color: #7f1d1d; font-weight: 850; cursor: pointer; text-align: left; }
     .contact-hidden { padding: 12px; border: 1px dashed #e99b9b; border-radius: 16px; background: #fff; color: #7f1d1d; font-weight: 750; }
     .boundary { margin: 18px 2px 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
-    @media (max-width: 1150px) { .cards-track { grid-auto-columns: clamp(184px, 22%, 230px); } }
-    @media (max-width: 900px) { .topbar, .viewbar { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .side-grid { grid-template-columns: 1fr; } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(178px, 42%, 220px); } .workspace-body { grid-template-columns: 1fr; } }
-    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1520px); padding-top: 8px; } .review-pill { white-space: normal; } .summary-strip { grid-template-columns: 1fr 1fr; } .row-head, .workspace-head { flex-direction: column; align-items: flex-start; } .cards-track, .side-pane .cards-track { grid-auto-columns: minmax(196px, 82vw); } .overlay { padding: 0; } .workspace { width: 100vw; height: 100vh; border-radius: 0; border: none; } .detail-grid { grid-template-columns: 1fr; } }
-    @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover { transform: none; } }
+    @media (max-width: 1150px) { .cards-track { grid-auto-columns: clamp(168px, 22%, 222px); } }
+    @media (max-width: 760px) { .topbar, .viewbar { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(164px, 44%, 218px); } .workspace-body { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1540px); padding-top: 8px; } .review-pill { white-space: normal; } .summary-strip { grid-template-columns: 1fr 1fr; } .row-head, .workspace-head { flex-direction: column; align-items: flex-start; } .agent-metrics { justify-content: flex-start; } .overlay { padding: 0; } .workspace { width: 100vw; height: 100vh; border-radius: 0; } .detail-grid { grid-template-columns: 1fr; } .lead-card { min-height: 142px; } }
+    @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
 <body>
   <div class="shell">
     <header class="topbar" aria-label="Control Tower header">
-      <div class="brand">
-        <div class="brand-mark" aria-hidden="true">EP</div>
-        <div>
-          <p class="eyebrow">Control Tower</p>
-          <h1>Lead response command view</h1>
-        </div>
-      </div>
-      <span class="review-pill">Design review only</span>
+      <div class="brand"><div class="brand-mark" aria-hidden="true">EP</div><div><p class="eyebrow">Control Tower</p><h1>Active work command view</h1></div></div>
+      <span class="review-pill">Design review surface</span>
     </header>
 
-    <section class="summary-strip" id="summaryStrip" aria-label="Operational summary"></section>
+    <section class="summary-strip" id="summaryStrip" aria-label="Operational summary metrics"></section>
 
-    <section class="viewbar" aria-label="View selector">
+    <section class="viewbar" aria-label="View selection">
       <div class="view-tabs">
         <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
         <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
         <button class="view-tab" type="button" data-view="side" aria-pressed="false">Side-by-Side View</button>
       </div>
-      <div class="view-note">Active leads only. Completed leads stay out of the normal operating rows.</div>
+      <div class="view-note">Current active work only</div>
     </section>
 
-    <section class="legend" id="legend" aria-label="Lifecycle color key"></section>
-    <main id="workspace" aria-label="Control Tower command workspace"></main>
-    <p class="boundary">This isolated prototype is self-contained. It uses mock data only and does not use external assets, authentication, live records, UAT data, provider systems, or browser network requests.</p>
+    <section class="legend" id="legend" aria-label="Lifecycle color guide"></section>
+    <main id="workspace" aria-live="polite"></main>
+    <p class="boundary">Design review only. This isolated page uses inline mock data and does not connect to operational systems.</p>
   </div>
 
   <div class="overlay" id="leadOverlay" aria-hidden="true">
     <section class="workspace" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
       <header class="workspace-head">
-        <div>
-          <p class="eyebrow">Lead workspace</p>
-          <h2 id="detailTitle">Lead detail</h2>
-          <div id="detailSubtitle" class="row-subtext"></div>
-        </div>
-        <button class="close-button" id="closeOverlay" type="button">Close</button>
+        <div><p class="eyebrow">Lead workspace</p><h2 id="detailTitle">Lead</h2><div class="row-subtext" id="detailSubtitle"></div></div>
+        <button class="close-button" type="button" id="closeOverlay">Close</button>
       </header>
       <div class="workspace-body">
-        <div class="detail-panel">
-          <h3>Lead summary</h3>
-          <div class="detail-grid" id="summaryDetail"></div>
-        </div>
-        <div class="detail-panel">
-          <h3>Current status and next action</h3>
-          <div class="detail-grid" id="statusDetail"></div>
-        </div>
-        <div class="detail-panel">
-          <h3>Assigned-agent context</h3>
-          <div class="detail-grid" id="agentDetail"></div>
-        </div>
+        <div class="detail-panel"><h3>Lead summary</h3><div class="detail-grid" id="summaryDetail"></div></div>
+        <div class="detail-panel"><h3>Current status</h3><div class="detail-grid" id="statusDetail"></div></div>
+        <div class="detail-panel"><h3>Assigned context</h3><div class="detail-grid" id="agentDetail"></div></div>
+        <div class="detail-panel"><h3>Lifecycle timeline</h3><div class="timeline" id="timelineDetail"></div></div>
         <div class="detail-panel" id="resolutionPanel"></div>
-        <div class="detail-panel" style="grid-column:1 / -1;">
-          <h3>Lifecycle history</h3>
-          <div class="timeline" id="timelineDetail"></div>
-        </div>
       </div>
     </section>
   </div>
@@ -197,42 +194,48 @@
   <script>
     "use strict";
 
+    const serviceWindowOpen = false;
+
     const lifecycle = {
-      "New": { color: "#BFFBB6", description: "Awaiting first agent response" },
-      "Reminder Sent": { color: "#D9EEFF", description: "Reminder cycle in progress" },
-      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Agent started contact attempt" },
-      "At Risk": { color: "#FFF0B8", description: "Final reminder before escalation" },
-      "Escalated to Admin": { color: "#FFD6D6", description: "Administrator action needed" },
-      "Resolved": { color: "#E9EDF2", description: "Closed or completed" }
+      "Waiting for Business Hours": { color: "#1F3A5F", description: "Held until the configured service window opens" },
+      "New": { color: "#BFFBB6", description: "Awaiting first agent action" },
+      "Reminder Sent": { color: "#D9EEFF", description: "Reminder is in progress" },
+      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Agent started contact, outcome pending" },
+      "At Risk": { color: "#FFF0B8", description: "Final response window is active" },
+      "Escalated to Admin": { color: "#FFD6D6", description: "Administrator attention required" },
+      "Resolved": { color: "#E9EDF2", description: "Closed or completed history" }
     };
 
-    const lifecycleOrder = ["Escalated to Admin", "At Risk", "Waiting for Outcome Response", "Reminder Sent", "New"];
+    const lifecycleOrder = ["Escalated to Admin", "Waiting for Business Hours", "New", "Reminder Sent", "Waiting for Outcome Response", "At Risk"];
 
     const agents = {
-      admin: { id: "admin", name: "Administrator", initials: "AD", avgResponse: "8m", reassignments: 0, admin: true },
-      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "11m", reassignments: 1 },
-      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "18m", reassignments: 2 },
-      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "14m", reassignments: 0 },
-      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "22m", reassignments: 1 }
+      admin: { id: "admin", name: "Administrator", initials: "AD", avgResponse: "N/A", reassignments: "0", admin: true },
+      hold: { id: "hold", name: "Service Window Hold", initials: "BH", avgResponse: "Not started", reassignments: "0", hold: true },
+      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "12m", reassignments: "2", photoClass: "portrait-maya" },
+      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "17m", reassignments: "1", photoClass: "portrait-jordan" },
+      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "19m", reassignments: "3" },
+      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "14m", reassignments: "1", photoClass: "portrait-sofia" }
     };
 
     const leads = [
-      { id: "L-2201", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead received and assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
-      { id: "L-2202", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead received and assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
-      { id: "L-2203", name: "Priya Nair", phone: "(281) ***-4278", submitted: "Today, 8:36 AM", sort: 836, agent: "alex", stage: "At Risk", context: "Final reminder due now", source: "Website Form", events: [["8:36 AM", "Lead assigned to Alex Kim"], ["8:51 AM", "Reminder sent"], ["9:06 AM", "Final reminder window started"]] },
-      { id: "L-2204", name: "Daniel Foster", phone: "(346) ***-5904", submitted: "Today, 8:48 AM", sort: 848, agent: "sofia", stage: "At Risk", context: "Final reminder in 4 min", source: "Realtor.com", events: [["8:48 AM", "Lead assigned to Sofia Grant"], ["9:03 AM", "Reminder sent"], ["9:18 AM", "At-risk state reached"]] },
-      { id: "L-2205", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Agent started call, outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent selected Call Now"], ["9:07 AM", "Waiting for outcome response"]] },
-      { id: "L-2206", name: "Marcus Bell", phone: "(409) ***-2150", submitted: "Today, 9:02 AM", sort: 902, agent: "jordan", stage: "Waiting for Outcome Response", context: "Outcome follow-up due soon", source: "Facebook Lead Ad", events: [["9:02 AM", "Lead assigned to Jordan Lee"], ["9:05 AM", "Agent started contact attempt"], ["9:10 AM", "Outcome follow-up active"]] },
-      { id: "L-2207", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder 1 active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder 1 sent"]] },
-      { id: "L-2208", name: "Owen Price", phone: "(281) ***-8901", submitted: "Today, 9:09 AM", sort: 909, agent: "sofia", stage: "New", context: "Fresh cycle after reassignment", source: "Website Form", reassignedHistory: true, events: [["8:54 AM", "Original agent selected Reassign"], ["9:09 AM", "Lead reassigned to Sofia Grant"], ["9:09 AM", "Fresh initial-response cycle started"]] },
-      { id: "L-2209", name: "Liam Chen", phone: "(713) ***-3487", submitted: "Today, 9:14 AM", sort: 914, agent: "maya", stage: "New", context: "Initial response pending", source: "Referral Partner", events: [["9:14 AM", "Lead received"], ["9:14 AM", "Assigned to Maya Torres"]] },
-      { id: "L-2210", name: "Grace Morgan", phone: "(346) ***-7322", submitted: "Today, 9:18 AM", sort: 918, agent: "jordan", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:18 AM", "Lead received"], ["9:18 AM", "Assigned to Jordan Lee"]] },
-      { id: "L-2211", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder 1 in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
-      { id: "L-2212", name: "Hannah Ruiz", phone: "(281) ***-3810", submitted: "Today, 9:24 AM", sort: 924, agent: "sofia", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:24 AM", "Lead received"], ["9:24 AM", "Assigned to Sofia Grant"]] },
-      { id: "L-2199", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed, hidden from active rows", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
+      { id: "L-2301", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead received and assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
+      { id: "L-2302", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead received and assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
+      { id: "L-2303", name: "Priya Nair", phone: "(281) ***-4278", submitted: "Today, 8:36 AM", sort: 836, agent: "alex", stage: "At Risk", context: "Final reminder due now", source: "Website Form", events: [["8:36 AM", "Lead assigned to Alex Kim"], ["8:51 AM", "Reminder sent"], ["9:06 AM", "Final reminder window started"]] },
+      { id: "L-2304", name: "Daniel Foster", phone: "(346) ***-5904", submitted: "Today, 8:48 AM", sort: 848, agent: "sofia", stage: "At Risk", context: "Final reminder in 4 min", source: "Realtor.com", events: [["8:48 AM", "Lead assigned to Sofia Grant"], ["9:03 AM", "Reminder sent"], ["9:18 AM", "At-risk state reached"]] },
+      { id: "L-2305", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Agent started call, outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent selected Call Now"], ["9:07 AM", "Waiting for outcome response"]] },
+      { id: "L-2306", name: "Marcus Bell", phone: "(409) ***-2150", submitted: "Today, 9:02 AM", sort: 902, agent: "jordan", stage: "Waiting for Outcome Response", context: "Outcome follow-up due soon", source: "Facebook Lead Ad", events: [["9:02 AM", "Lead assigned to Jordan Lee"], ["9:05 AM", "Agent started contact attempt"], ["9:10 AM", "Outcome follow-up active"]] },
+      { id: "L-2307", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder 1 active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder 1 sent"]] },
+      { id: "L-2308", name: "Owen Price", phone: "(281) ***-8901", submitted: "Today, 9:09 AM", sort: 909, agent: "sofia", stage: "New", context: "Fresh cycle after reassignment", source: "Website Form", reassignedHistory: true, events: [["8:54 AM", "Original agent selected Reassign"], ["9:09 AM", "Lead reassigned to Sofia Grant"], ["9:09 AM", "Fresh initial-response cycle started"]] },
+      { id: "L-2309", name: "Liam Chen", phone: "(713) ***-3487", submitted: "Today, 9:14 AM", sort: 914, agent: "maya", stage: "New", context: "Initial response pending", source: "Referral Partner", events: [["9:14 AM", "Lead received"], ["9:14 AM", "Assigned to Maya Torres"]] },
+      { id: "L-2310", name: "Grace Morgan", phone: "(346) ***-7322", submitted: "Today, 9:18 AM", sort: 918, agent: "jordan", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:18 AM", "Lead received"], ["9:18 AM", "Assigned to Jordan Lee"]] },
+      { id: "L-2311", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder 1 in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
+      { id: "L-2312", name: "Hannah Ruiz", phone: "(281) ***-3810", submitted: "Today, 9:24 AM", sort: 924, agent: "sofia", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:24 AM", "Lead received"], ["9:24 AM", "Assigned to Sofia Grant"]] },
+      { id: "L-2313", name: "Avery Bennett", phone: "(713) ***-5811", submitted: "Today, 11:42 PM", sort: 2342, agent: "hold", stage: "Waiting for Business Hours", context: "Held until service opens", source: "Website Form", offHours: true, events: [["11:42 PM", "Lead arrived after service window closed"], ["11:42 PM", "Held for opening release"]] },
+      { id: "L-2314", name: "Mei Lawson", phone: "(832) ***-7764", submitted: "Today, 11:51 PM", sort: 2351, agent: "hold", stage: "Waiting for Business Hours", context: "Release at opening", source: "Realtor.com", offHours: true, events: [["11:51 PM", "Lead arrived after service window closed"], ["11:51 PM", "Release queued for next service window"]] },
+      { id: "L-2299", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed, hidden from active rows", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
     ];
 
-    const activeLeads = leads.filter((lead) => !lead.inactive);
+    const activeLeads = leads.filter((lead) => !lead.inactive && (lead.stage !== "Waiting for Business Hours" || !serviceWindowOpen));
     let currentView = "lifecycle";
 
     const workspace = document.getElementById("workspace");
@@ -255,27 +258,32 @@
     }
 
     function renderLegend() {
-      legend.innerHTML = Object.entries(lifecycle).map(([stage, info]) => `<span class="legend-chip"><span class="legend-dot" style="background:${info.color}"></span>${esc(stage)}</span>`).join("");
+      legend.innerHTML = Object.entries(lifecycle).map(([stage, info]) => `<span class="legend-chip ${stage === "Waiting for Business Hours" ? "dark" : ""}"><span class="legend-dot" style="background:${info.color}"></span>${esc(stage)}</span>`).join("");
     }
 
-    function renderRow({ title, subtitle, items, dot, escalated = false, mode = "lifecycle" }) {
-      const rowId = `row-${Math.random().toString(36).slice(2)}`;
-      const cards = items.sort((a, b) => a.sort - b.sort).map((lead) => renderCard(lead, mode)).join("");
-      return `<section class="row-panel ${escalated ? "escalated" : ""}">
+    function agentPortrait(agent) {
+      if (agent.photoClass) return `<div class="avatar portrait-photo ${agent.photoClass}" role="img" aria-label="Mock portrait for ${esc(agent.name)}"></div>`;
+      const mode = agent.admin ? "admin" : agent.hold ? "hold" : "";
+      return `<div class="avatar ${mode}" aria-label="${esc(agent.name)} initials fallback">${esc(agent.initials)}</div>`;
+    }
+
+    function renderRow({ title, subtitle, items, dot, escalated = false, businessHours = false, mode = "lifecycle", emptyText = "No active leads in this stage" }) {
+      const cards = [...items].sort((a, b) => a.sort - b.sort).map((lead) => renderCard(lead, mode)).join("");
+      return `<section class="row-panel ${escalated ? "escalated" : ""} ${businessHours ? "business-hours" : ""}">
         <header class="row-head">
           <div class="row-title">${dot}<div><h2>${esc(title)}</h2><div class="row-subtext">${esc(subtitle)}</div></div></div>
         </header>
-        <div class="carousel" data-carousel>
+        ${items.length ? `<div class="carousel" data-carousel>
           <button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button>
-          <div class="cards-track" id="${rowId}">${cards}</div>
+          <div class="cards-track">${cards}</div>
           <button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button>
-        </div>
+        </div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
       </section>`;
     }
 
     function renderCard(lead, mode) {
       const agent = agentFor(lead.agent);
-      const showStatusLine = mode !== "lifecycle";
+      const showStatusLine = mode !== "lifecycle" || lead.stage === "Waiting for Business Hours";
       return `<button class="lead-card" type="button" data-lead-id="${esc(lead.id)}" data-stage="${esc(lead.stage)}" aria-label="Open ${esc(lead.name)} detail">
         <div>
           ${showStatusLine ? `<span class="status-line">${esc(lead.stage)}</span>` : ""}
@@ -295,32 +303,30 @@
         const items = activeLeads.filter((lead) => lead.stage === stage);
         const info = lifecycle[stage];
         const title = stage === "Escalated to Admin" ? "Exceptions / Escalated-to-Admin" : stage;
-        return renderRow({ title, subtitle: `${items.length} active lead${items.length === 1 ? "" : "s"}. ${info.description}.`, items, dot: `<span class="stage-dot" style="background:${info.color}" aria-hidden="true"></span>`, escalated: stage === "Escalated to Admin", mode: prefix ? "side-lifecycle" : "lifecycle" });
+        const subtitle = stage === "Waiting for Business Hours" && serviceWindowOpen ? "0 held leads. Service window is open." : `${items.length} active lead${items.length === 1 ? "" : "s"}. ${info.description}.`;
+        return renderRow({ title, subtitle, items, dot: `<span class="stage-dot" style="background:${info.color}" aria-hidden="true"></span>`, escalated: stage === "Escalated to Admin", businessHours: stage === "Waiting for Business Hours", mode: prefix ? "side-lifecycle" : "lifecycle", emptyText: stage === "Waiting for Business Hours" ? "No leads are currently being held for business hours." : "No active leads in this stage." });
       });
       return `<div class="stage-stack ${prefix}">${rows.join("")}</div>`;
     }
 
     function renderAgentHeader(agent, count) {
-      return `<div class="agent-headline"><div class="avatar ${agent.admin ? "admin" : ""}" aria-label="${esc(agent.name)} portrait fallback">${esc(agent.initials)}</div><div><h2>${esc(agent.name)}</h2><div class="row-subtext">${count} active lead${count === 1 ? "" : "s"}</div></div></div>`;
+      return `<div class="agent-headline">${agentPortrait(agent)}<div><h2>${esc(agent.name)}</h2><div class="row-subtext">${count} active lead${count === 1 ? "" : "s"}</div></div></div>`;
     }
 
     function renderAgentView(prefix = "") {
-      const agentOrder = [agents.admin, agents.maya, agents.jordan, agents.alex, agents.sofia];
+      const agentOrder = [agents.admin, agents.hold, agents.maya, agents.jordan, agents.alex, agents.sofia];
       const rows = agentOrder.map((agent) => {
         const items = activeLeads.filter((lead) => lead.agent === agent.id);
-        const titleHtml = renderAgentHeader(agent, items.length);
-        const subtitle = `Avg. response ${agent.avgResponse}. Reassignments ${agent.reassignments}.`;
-        return `<section class="row-panel ${agent.admin ? "escalated" : ""}">
+        return `<section class="row-panel ${agent.admin ? "escalated" : ""} ${agent.hold ? "business-hours" : ""}">
           <header class="row-head">
-            <div class="row-title">${titleHtml}</div>
+            <div class="row-title">${renderAgentHeader(agent, items.length)}</div>
             <div class="agent-metrics"><span class="agent-metric">Avg. Response: ${esc(agent.avgResponse)}</span><span class="agent-metric">Reassignments: ${esc(agent.reassignments)}</span></div>
           </header>
-          <div class="carousel" data-carousel>
+          ${items.length ? `<div class="carousel" data-carousel>
             <button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button>
-            <div class="cards-track">${items.sort((a,b) => a.sort - b.sort).map((lead) => renderCard(lead, prefix ? "side-agent" : "agent")).join("")}</div>
+            <div class="cards-track">${[...items].sort((a,b) => a.sort - b.sort).map((lead) => renderCard(lead, prefix ? "side-agent" : "agent")).join("")}</div>
             <button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button>
-          </div>
-          <div class="row-subtext" style="padding:0 18px 14px;">${esc(subtitle)}</div>
+          </div>` : `<div class="empty-state">No active leads in this row.</div>`}
         </section>`;
       });
       return `<div class="agent-stack agent-mode ${prefix}">${rows.join("")}</div>`;
@@ -342,7 +348,7 @@
       document.getElementById("detailSubtitle").textContent = `${lead.stage} / ${lead.context}`;
       document.getElementById("summaryDetail").innerHTML = [detailItem("Phone", lead.phone), detailItem("Submitted", lead.submitted), detailItem("Source", lead.source), detailItem("Lead", lead.id)].join("");
       document.getElementById("statusDetail").innerHTML = [detailItem("Lifecycle", lead.stage), detailItem("Next Action", lead.context), detailItem("Escalation Reason", lead.escalationReason || "Not escalated"), detailItem("Read-only", lead.eligibleAdminResolution ? "Admin resolution available" : "Normal lead")].join("");
-      document.getElementById("agentDetail").innerHTML = [detailItem("Assigned Agent", agent.name), detailItem("Avg. Response", agent.avgResponse), detailItem("Reassignments", agent.reassignments), detailItem("Reassignment History", lead.reassignedHistory ? "Reassigned, now fresh New cycle" : "None shown")].join("");
+      document.getElementById("agentDetail").innerHTML = [detailItem("Assigned Context", agent.name), detailItem("Avg. Response", agent.avgResponse), detailItem("Reassignments", agent.reassignments), detailItem("Reassignment History", lead.reassignedHistory ? "Reassigned, now fresh New cycle" : "None shown")].join("");
       document.getElementById("timelineDetail").innerHTML = lead.events.map(([time, text]) => `<div class="event"><strong>${esc(text)}</strong><span>${esc(time)}</span></div>`).join("");
       renderResolutionPanel(lead);
       overlay.classList.add("open");
@@ -375,29 +381,28 @@
         const left = carousel.querySelector(".rail-arrow.left");
         const right = carousel.querySelector(".rail-arrow.right");
         const update = () => {
-          const max = track.scrollWidth - track.clientWidth;
-          left.classList.toggle("visible", track.scrollLeft > 4);
-          right.classList.toggle("visible", max > 4 && track.scrollLeft < max - 4);
+          const max = Math.max(0, track.scrollWidth - track.clientWidth - 2);
+          left.classList.toggle("visible", track.scrollLeft > 2);
+          right.classList.toggle("visible", track.scrollLeft < max);
         };
-        left.addEventListener("click", () => track.scrollBy({ left: -Math.round(track.clientWidth * .85), behavior: "smooth" }));
-        right.addEventListener("click", () => track.scrollBy({ left: Math.round(track.clientWidth * .85), behavior: "smooth" }));
+        left.addEventListener("click", () => track.scrollBy({ left: -Math.round(track.clientWidth * .86), behavior: "smooth" }));
+        right.addEventListener("click", () => track.scrollBy({ left: Math.round(track.clientWidth * .86), behavior: "smooth" }));
         track.addEventListener("scroll", update, { passive: true });
-        setTimeout(update, 0);
+        window.addEventListener("resize", update);
+        requestAnimationFrame(update);
       });
     }
 
     document.querySelectorAll(".view-tab").forEach((button) => button.addEventListener("click", () => { currentView = button.dataset.view; renderWorkspace(); }));
-    document.addEventListener("click", (event) => {
+    workspace.addEventListener("click", (event) => {
       const card = event.target.closest("[data-lead-id]");
-      if (card) {
-        const lead = leads.find((item) => item.id === card.dataset.leadId);
-        if (lead) openLead(lead);
-      }
-      if (event.target === overlay) closeLead();
+      if (!card) return;
+      const lead = activeLeads.find((item) => item.id === card.dataset.leadId);
+      if (lead) openLead(lead);
     });
     closeOverlay.addEventListener("click", closeLead);
+    overlay.addEventListener("click", (event) => { if (event.target === overlay) closeLead(); });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeLead(); });
-    window.addEventListener("resize", () => wireCarousels());
 
     renderSummary();
     renderLegend();
