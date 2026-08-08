@@ -16,7 +16,6 @@
       --brand-soft: #e7fbf7;
       --shadow: 0 18px 50px rgba(15,23,42,.11);
       --waiting-hours: #1F3A5F;
-      --waiting-hours-soft: #dbe7f5;
       --new: #BFFBB6;
       --reminder: #D9EEFF;
       --outcome: #E8E0FF;
@@ -63,14 +62,14 @@
     .metric span { display: block; margin-bottom: 7px; color: var(--muted); font-size: .7rem; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
     .metric strong { display: block; font-size: clamp(1.45rem, 3vw, 2.15rem); letter-spacing: -.05em; }
     .viewbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 12px 35px rgba(15,23,42,.07); }
-    .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
-    .view-tab { border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; background: white; color: #42526a; font-weight: 850; cursor: pointer; }
-    .view-tab[aria-pressed="true"] { border-color: transparent; background: linear-gradient(135deg, #0f766e, #0891b2); color: white; }
+    .view-tabs, .window-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+    .view-tab, .window-tab { border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; background: white; color: #42526a; font-weight: 850; cursor: pointer; }
+    .view-tab[aria-pressed="true"], .window-tab[aria-pressed="true"] { border-color: transparent; background: linear-gradient(135deg, #0f766e, #0891b2); color: white; }
     .view-note { color: var(--muted); font-size: .88rem; }
     .legend { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
     .legend-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.82); color: #405069; font-size: .78rem; font-weight: 750; }
-    .legend-dot { width: 13px; height: 13px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); }
     .legend-chip.dark { background: #263f62; color: #fff; border-color: #1f3a5f; }
+    .legend-dot { width: 13px; height: 13px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); }
     .stage-stack, .agent-stack { display: grid; gap: 15px; }
     .row-panel { border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 16px 44px rgba(15,23,42,.08); overflow: hidden; }
     .row-panel.escalated { border-color: #ffc2c2; box-shadow: 0 18px 48px rgba(185,28,28,.13); }
@@ -83,7 +82,7 @@
     .agent-headline { display: flex; align-items: center; gap: 12px; }
     .avatar { width: 48px; height: 48px; border-radius: 17px; display: grid; place-items: center; color: white; font-weight: 900; background: linear-gradient(145deg, #0f766e, #7c3aed); box-shadow: inset 0 0 0 2px rgba(255,255,255,.35), 0 10px 22px rgba(15,23,42,.13); overflow: hidden; flex: 0 0 auto; }
     .avatar.admin { background: linear-gradient(145deg, #991b1b, #fb7185); }
-    .avatar.hold { background: linear-gradient(145deg, #1f3a5f, #0f172a); }
+    .avatar.queue { background: linear-gradient(145deg, #1f3a5f, #0f172a); }
     .portrait-photo { position: relative; background: linear-gradient(145deg, #e7eef8, #f9fbff); color: transparent; }
     .portrait-photo::before { content: ""; position: absolute; inset: 6px 8px 9px; border-radius: 14px; background: var(--portrait-bg); box-shadow: inset 0 0 0 1px rgba(255,255,255,.45); }
     .portrait-photo::after { content: ""; position: absolute; left: 15px; top: 9px; width: 18px; height: 18px; border-radius: 999px; background: var(--portrait-face); box-shadow: 0 18px 0 7px var(--portrait-face), 0 3px 0 9px var(--portrait-hair); }
@@ -123,6 +122,7 @@
     .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border-radius: 999px; border: 1px solid rgba(15,23,42,.15); background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .card-agent { display: block; }
     .agent-mode .card-agent, .side-agent .card-agent { display: none; }
+    .minimal-indicator { display: inline-flex; align-items: center; gap: 8px; width: fit-content; margin: 0 0 14px; padding: 8px 11px; border: 1px solid #c9d7e8; border-radius: 999px; background: rgba(255,255,255,.82); color: #42526a; font-size: .82rem; font-weight: 800; }
     .empty-state { margin: 4px 18px 18px; padding: 18px; border: 1px dashed var(--line); border-radius: 18px; color: var(--muted); background: rgba(255,255,255,.64); font-weight: 700; }
     .row-panel.business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
     .overlay { position: fixed; inset: 0; z-index: 80; display: none; padding: 5vh 5vw; background: rgba(15,23,42,.46); backdrop-filter: blur(6px); }
@@ -146,33 +146,36 @@
     .resolution-actions button { border: 1px solid #f3b5b5; border-radius: 14px; background: white; padding: 9px 11px; color: #7f1d1d; font-weight: 850; cursor: pointer; text-align: left; }
     .contact-hidden { padding: 12px; border: 1px dashed #e99b9b; border-radius: 16px; background: #fff; color: #7f1d1d; font-weight: 750; }
     .boundary { margin: 18px 2px 0; color: var(--muted); font-size: .82rem; line-height: 1.5; }
-    @media (max-width: 1150px) { .cards-track { grid-auto-columns: clamp(168px, 22%, 222px); } }
-    @media (max-width: 760px) { .topbar, .viewbar { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(164px, 44%, 218px); } .workspace-body { grid-template-columns: 1fr; } }
-    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1540px); padding-top: 8px; } .review-pill { white-space: normal; } .summary-strip { grid-template-columns: 1fr 1fr; } .row-head, .workspace-head { flex-direction: column; align-items: flex-start; } .agent-metrics { justify-content: flex-start; } .overlay { padding: 0; } .workspace { width: 100vw; height: 100vh; border-radius: 0; } .detail-grid { grid-template-columns: 1fr; } .lead-card { min-height: 142px; } }
+    @media (max-width: 1150px) { .cards-track { grid-auto-columns: clamp(160px, 22%, 220px); } }
+    @media (max-width: 760px) { .topbar, .viewbar, .row-head { grid-template-columns: 1fr; flex-direction: column; align-items: flex-start; } .summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } .cards-track, .side-pane .cards-track { grid-auto-columns: clamp(150px, 44%, 210px); } .workspace-body { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px, 1540px); padding-top: 8px; } .review-pill { white-space: normal; } .workspace { width: 100vw; height: 100vh; border-radius: 0; } .overlay { padding: 0; } .detail-grid { grid-template-columns: 1fr; } .summary-strip { grid-template-columns: 1fr 1fr; } }
     @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
 <body>
   <div class="shell">
     <header class="topbar" aria-label="Control Tower header">
-      <div class="brand"><div class="brand-mark" aria-hidden="true">EP</div><div><p class="eyebrow">Control Tower</p><h1>Active work command view</h1></div></div>
-      <span class="review-pill">Design review surface</span>
+      <div class="brand"><div class="brand-mark" aria-hidden="true">EP</div><div><p class="eyebrow">Control Tower</p><h1>Active lead command center</h1></div></div>
+      <span class="review-pill">Design prototype / mock active work</span>
     </header>
 
-    <section class="summary-strip" id="summaryStrip" aria-label="Operational summary metrics"></section>
+    <section class="summary-strip" id="summaryStrip" aria-label="Operational summary"></section>
 
-    <section class="viewbar" aria-label="View selection">
-      <div class="view-tabs">
+    <section class="viewbar" aria-label="View controls">
+      <div class="view-tabs" aria-label="Control Tower views">
         <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
         <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
         <button class="view-tab" type="button" data-view="side" aria-pressed="false">Side-by-Side View</button>
       </div>
-      <div class="view-note">Current active work only</div>
+      <div class="window-tabs" aria-label="Service window visual state">
+        <button class="window-tab" type="button" data-window="open" aria-pressed="true">Business Hours</button>
+        <button class="window-tab" type="button" data-window="closed" aria-pressed="false">Outside Hours</button>
+      </div>
     </section>
 
-    <section class="legend" id="legend" aria-label="Lifecycle color guide"></section>
+    <div class="legend" id="legend" aria-label="Lifecycle legend"></div>
     <main id="workspace" aria-live="polite"></main>
-    <p class="boundary">Design review only. This isolated page uses inline mock data and does not connect to operational systems.</p>
+    <p class="boundary">This mockup represents current active work only. Historical reporting belongs in Analytics. The service-window control is included only to review the two visual states.</p>
   </div>
 
   <div class="overlay" id="leadOverlay" aria-hidden="true">
@@ -184,8 +187,8 @@
       <div class="workspace-body">
         <div class="detail-panel"><h3>Lead summary</h3><div class="detail-grid" id="summaryDetail"></div></div>
         <div class="detail-panel"><h3>Current status</h3><div class="detail-grid" id="statusDetail"></div></div>
-        <div class="detail-panel"><h3>Assigned context</h3><div class="detail-grid" id="agentDetail"></div></div>
-        <div class="detail-panel"><h3>Lifecycle timeline</h3><div class="timeline" id="timelineDetail"></div></div>
+        <div class="detail-panel"><h3>Assigned agent</h3><div class="detail-grid" id="agentDetail"></div></div>
+        <div class="detail-panel"><h3>Lifecycle history</h3><div class="timeline" id="timelineDetail"></div></div>
         <div class="detail-panel" id="resolutionPanel"></div>
       </div>
     </section>
@@ -194,96 +197,76 @@
   <script>
     "use strict";
 
-    const serviceWindowOpen = false;
-
+    const lifecycleOrder = ["Waiting for Business Hours", "New", "Reminder Sent", "Waiting for Outcome Response", "At Risk", "Escalated to Admin", "Resolved"];
     const lifecycle = {
-      "Waiting for Business Hours": { color: "#1F3A5F", description: "Held until the configured service window opens" },
-      "New": { color: "#BFFBB6", description: "Awaiting first agent action" },
-      "Reminder Sent": { color: "#D9EEFF", description: "Reminder is in progress" },
-      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Agent started contact, outcome pending" },
-      "At Risk": { color: "#FFF0B8", description: "Final response window is active" },
+      "Waiting for Business Hours": { color: "#1F3A5F", description: "Held until the service window opens", dark: true },
+      "New": { color: "#BFFBB6", description: "Fresh initial response cycle" },
+      "Reminder Sent": { color: "#D9EEFF", description: "Reminder active" },
+      "Waiting for Outcome Response": { color: "#E8E0FF", description: "Contact attempt started, outcome pending" },
+      "At Risk": { color: "#FFF0B8", description: "Final reminder window" },
       "Escalated to Admin": { color: "#FFD6D6", description: "Administrator attention required" },
-      "Resolved": { color: "#E9EDF2", description: "Closed or completed history" }
+      "Resolved": { color: "#E9EDF2", description: "Closed history state" }
     };
-
-    const lifecycleOrder = ["Escalated to Admin", "Waiting for Business Hours", "New", "Reminder Sent", "Waiting for Outcome Response", "At Risk"];
-
     const agents = {
-      admin: { id: "admin", name: "Administrator", initials: "AD", avgResponse: "N/A", reassignments: "0", admin: true },
-      hold: { id: "hold", name: "Service Window Hold", initials: "BH", avgResponse: "Not started", reassignments: "0", hold: true },
-      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "12m", reassignments: "2", photoClass: "portrait-maya" },
-      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "17m", reassignments: "1", photoClass: "portrait-jordan" },
-      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "19m", reassignments: "3" },
-      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "14m", reassignments: "1", photoClass: "portrait-sofia" }
+      admin: { id: "admin", name: "Administrator", initials: "AD", avgResponse: "-", reassignments: "-", admin: true },
+      maya: { id: "maya", name: "Maya Torres", initials: "MT", avgResponse: "11m", reassignments: 2, portrait: "portrait-maya" },
+      jordan: { id: "jordan", name: "Jordan Lee", initials: "JL", avgResponse: "16m", reassignments: 1, portrait: "portrait-jordan" },
+      alex: { id: "alex", name: "Alex Kim", initials: "AK", avgResponse: "18m", reassignments: 0 },
+      sofia: { id: "sofia", name: "Sofia Grant", initials: "SG", avgResponse: "14m", reassignments: 3, portrait: "portrait-sofia" }
     };
-
     const leads = [
-      { id: "L-2301", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead received and assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
-      { id: "L-2302", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead received and assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
-      { id: "L-2303", name: "Priya Nair", phone: "(281) ***-4278", submitted: "Today, 8:36 AM", sort: 836, agent: "alex", stage: "At Risk", context: "Final reminder due now", source: "Website Form", events: [["8:36 AM", "Lead assigned to Alex Kim"], ["8:51 AM", "Reminder sent"], ["9:06 AM", "Final reminder window started"]] },
-      { id: "L-2304", name: "Daniel Foster", phone: "(346) ***-5904", submitted: "Today, 8:48 AM", sort: 848, agent: "sofia", stage: "At Risk", context: "Final reminder in 4 min", source: "Realtor.com", events: [["8:48 AM", "Lead assigned to Sofia Grant"], ["9:03 AM", "Reminder sent"], ["9:18 AM", "At-risk state reached"]] },
-      { id: "L-2305", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Agent started call, outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent selected Call Now"], ["9:07 AM", "Waiting for outcome response"]] },
-      { id: "L-2306", name: "Marcus Bell", phone: "(409) ***-2150", submitted: "Today, 9:02 AM", sort: 902, agent: "jordan", stage: "Waiting for Outcome Response", context: "Outcome follow-up due soon", source: "Facebook Lead Ad", events: [["9:02 AM", "Lead assigned to Jordan Lee"], ["9:05 AM", "Agent started contact attempt"], ["9:10 AM", "Outcome follow-up active"]] },
-      { id: "L-2307", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder 1 active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder 1 sent"]] },
-      { id: "L-2308", name: "Owen Price", phone: "(281) ***-8901", submitted: "Today, 9:09 AM", sort: 909, agent: "sofia", stage: "New", context: "Fresh cycle after reassignment", source: "Website Form", reassignedHistory: true, events: [["8:54 AM", "Original agent selected Reassign"], ["9:09 AM", "Lead reassigned to Sofia Grant"], ["9:09 AM", "Fresh initial-response cycle started"]] },
-      { id: "L-2309", name: "Liam Chen", phone: "(713) ***-3487", submitted: "Today, 9:14 AM", sort: 914, agent: "maya", stage: "New", context: "Initial response pending", source: "Referral Partner", events: [["9:14 AM", "Lead received"], ["9:14 AM", "Assigned to Maya Torres"]] },
-      { id: "L-2310", name: "Grace Morgan", phone: "(346) ***-7322", submitted: "Today, 9:18 AM", sort: 918, agent: "jordan", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:18 AM", "Lead received"], ["9:18 AM", "Assigned to Jordan Lee"]] },
-      { id: "L-2311", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder 1 in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
-      { id: "L-2312", name: "Hannah Ruiz", phone: "(281) ***-3810", submitted: "Today, 9:24 AM", sort: 924, agent: "sofia", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:24 AM", "Lead received"], ["9:24 AM", "Assigned to Sofia Grant"]] },
-      { id: "L-2313", name: "Avery Bennett", phone: "(713) ***-5811", submitted: "Today, 11:42 PM", sort: 2342, agent: "hold", stage: "Waiting for Business Hours", context: "Held until service opens", source: "Website Form", offHours: true, events: [["11:42 PM", "Lead arrived after service window closed"], ["11:42 PM", "Held for opening release"]] },
-      { id: "L-2314", name: "Mei Lawson", phone: "(832) ***-7764", submitted: "Today, 11:51 PM", sort: 2351, agent: "hold", stage: "Waiting for Business Hours", context: "Release at opening", source: "Realtor.com", offHours: true, events: [["11:51 PM", "Lead arrived after service window closed"], ["11:51 PM", "Release queued for next service window"]] },
-      { id: "L-2299", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed, hidden from active rows", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
+      { id: "L-2200", name: "Bethany Clark", phone: "(832) ***-4802", submitted: "Today, 6:18 AM", sort: 618, agent: null, stage: "Waiting for Business Hours", context: "Held until service opens", source: "Website Form", events: [["6:18 AM", "Lead received outside business hours"], ["6:18 AM", "Held for service window release"]] },
+      { id: "L-2198", name: "Rafael Gomez", phone: "(713) ***-6420", submitted: "Today, 6:44 AM", sort: 644, agent: null, stage: "Waiting for Business Hours", context: "Release at opening", source: "Referral Partner", events: [["6:44 AM", "Lead received outside business hours"], ["6:44 AM", "Waiting for business hours"]] },
+      { id: "L-2201", name: "Amanda Rivera", phone: "(713) ***-0142", submitted: "Today, 8:04 AM", sort: 804, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Website Form", eligibleAdminResolution: true, escalationReason: "Final reminder expired without a permitted response.", events: [["8:04 AM", "Lead assigned to Maya Torres"], ["8:19 AM", "Reminder sent"], ["8:34 AM", "Final reminder sent"], ["8:49 AM", "Escalated to Admin"]] },
+      { id: "L-2202", name: "Cameron Brooks", phone: "(832) ***-6631", submitted: "Today, 8:22 AM", sort: 822, agent: "admin", stage: "Escalated to Admin", context: "Admin review required", source: "Zillow", eligibleAdminResolution: true, escalationReason: "Agent did not record an outcome before escalation.", events: [["8:22 AM", "Lead assigned to Jordan Lee"], ["8:37 AM", "Reminder sent"], ["8:52 AM", "Final reminder sent"], ["9:07 AM", "Escalated to Admin"]] },
+      { id: "L-2203", name: "Priya Nair", phone: "(281) ***-4278", submitted: "Today, 8:36 AM", sort: 836, agent: "alex", stage: "At Risk", context: "Final reminder due now", source: "Website Form", events: [["8:36 AM", "Lead assigned to Alex Kim"], ["8:51 AM", "Reminder sent"], ["9:06 AM", "Final reminder window started"]] },
+      { id: "L-2204", name: "Daniel Foster", phone: "(346) ***-5904", submitted: "Today, 8:48 AM", sort: 848, agent: "sofia", stage: "At Risk", context: "Final reminder in 4 min", source: "Realtor.com", events: [["8:48 AM", "Lead assigned to Sofia Grant"], ["9:03 AM", "Reminder sent"], ["9:18 AM", "At-risk state reached"]] },
+      { id: "L-2205", name: "Elena Castillo", phone: "(713) ***-7789", submitted: "Today, 8:57 AM", sort: 857, agent: "maya", stage: "Waiting for Outcome Response", context: "Outcome pending", source: "Website Form", events: [["8:57 AM", "Lead assigned to Maya Torres"], ["9:02 AM", "Agent started call"], ["9:07 AM", "Waiting for outcome response"]] },
+      { id: "L-2206", name: "Marcus Bell", phone: "(409) ***-2150", submitted: "Today, 9:02 AM", sort: 902, agent: "jordan", stage: "Waiting for Outcome Response", context: "Outcome follow-up due soon", source: "Facebook Lead Ad", events: [["9:02 AM", "Lead assigned to Jordan Lee"], ["9:05 AM", "Agent started contact attempt"], ["9:10 AM", "Outcome follow-up active"]] },
+      { id: "L-2207", name: "Nora Hughes", phone: "(832) ***-1048", submitted: "Today, 9:06 AM", sort: 906, agent: "maya", stage: "Reminder Sent", context: "Reminder active", source: "Website Form", events: [["9:06 AM", "Lead assigned to Maya Torres"], ["9:11 AM", "Reminder sent"]] },
+      { id: "L-2208", name: "Owen Price", phone: "(281) ***-8901", submitted: "Today, 9:09 AM", sort: 909, agent: "sofia", stage: "New", context: "Fresh cycle after reassignment", source: "Website Form", reassignedHistory: true, events: [["8:54 AM", "Original agent selected Reassign"], ["9:09 AM", "Lead reassigned to Sofia Grant"], ["9:09 AM", "Fresh initial-response cycle started"]] },
+      { id: "L-2209", name: "Liam Chen", phone: "(713) ***-3487", submitted: "Today, 9:14 AM", sort: 914, agent: "maya", stage: "New", context: "Initial response pending", source: "Referral Partner", events: [["9:14 AM", "Lead received"], ["9:14 AM", "Assigned to Maya Torres"]] },
+      { id: "L-2210", name: "Grace Morgan", phone: "(346) ***-7322", submitted: "Today, 9:18 AM", sort: 918, agent: "jordan", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:18 AM", "Lead received"], ["9:18 AM", "Assigned to Jordan Lee"]] },
+      { id: "L-2211", name: "Victor Allen", phone: "(832) ***-9921", submitted: "Today, 9:21 AM", sort: 921, agent: "alex", stage: "Reminder Sent", context: "Reminder in progress", source: "Open House", events: [["9:21 AM", "Lead received"], ["9:26 AM", "Reminder sent"]] },
+      { id: "L-2212", name: "Hannah Ruiz", phone: "(281) ***-3810", submitted: "Today, 9:24 AM", sort: 924, agent: "sofia", stage: "New", context: "Initial response pending", source: "Website Form", events: [["9:24 AM", "Lead received"], ["9:24 AM", "Assigned to Sofia Grant"]] },
+      { id: "L-2199", name: "Resolved sample", phone: "(713) ***-0000", submitted: "Earlier today", sort: 700, agent: "alex", stage: "Resolved", context: "Closed history state", source: "History", inactive: true, events: [["7:00 AM", "Lead received"], ["7:06 AM", "Appointment set"], ["7:07 AM", "Resolved"]] }
     ];
 
-    const activeLeads = leads.filter((lead) => !lead.inactive && (lead.stage !== "Waiting for Business Hours" || !serviceWindowOpen));
     let currentView = "lifecycle";
-
+    let serviceWindowOpen = true;
     const workspace = document.getElementById("workspace");
     const summaryStrip = document.getElementById("summaryStrip");
     const legend = document.getElementById("legend");
     const overlay = document.getElementById("leadOverlay");
     const closeOverlay = document.getElementById("closeOverlay");
 
-    function esc(value) {
-      return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
-    }
-
-    function agentFor(id) { return agents[id] || agents.admin; }
+    function esc(value) { return String(value ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;"); }
+    function agentFor(id) { return agents[id] || { id: "unassigned", name: "Unassigned", initials: "--", avgResponse: "-", reassignments: 0 }; }
+    function waitingLeads() { return leads.filter((lead) => !lead.inactive && lead.stage === "Waiting for Business Hours"); }
+    function openWindowLeads() { return leads.filter((lead) => !lead.inactive && lead.stage !== "Waiting for Business Hours"); }
+    function closedWindowLeads() { return leads.filter((lead) => !lead.inactive && (lead.stage === "Waiting for Business Hours" || lead.stage === "Escalated to Admin")); }
+    function activeLeads() { return serviceWindowOpen ? openWindowLeads() : closedWindowLeads(); }
 
     function renderSummary() {
-      const escalated = activeLeads.filter((lead) => lead.stage === "Escalated to Admin").length;
-      const risk = activeLeads.filter((lead) => lead.stage === "At Risk").length;
-      const metrics = [["Active Leads", activeLeads.length], ["At Risk", risk], ["Escalated to Admin", escalated], ["Avg. Response Time", "16m"]];
+      const data = activeLeads();
+      const escalated = data.filter((lead) => lead.stage === "Escalated to Admin").length;
+      const risk = data.filter((lead) => lead.stage === "At Risk").length;
+      const metrics = [["Active Leads", data.length], ["At Risk", risk], ["Escalated to Admin", escalated], ["Avg. Response Time", serviceWindowOpen ? "16m" : "-" ]];
       summaryStrip.innerHTML = metrics.map(([label, value]) => `<article class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong></article>`).join("");
     }
 
     function renderLegend() {
-      legend.innerHTML = Object.entries(lifecycle).map(([stage, info]) => `<span class="legend-chip ${stage === "Waiting for Business Hours" ? "dark" : ""}"><span class="legend-dot" style="background:${info.color}"></span>${esc(stage)}</span>`).join("");
+      legend.innerHTML = Object.entries(lifecycle).map(([stage, info]) => `<span class="legend-chip ${info.dark ? "dark" : ""}"><span class="legend-dot" style="background:${info.color}"></span>${esc(stage)}</span>`).join("");
     }
 
-    function agentPortrait(agent) {
-      if (agent.photoClass) return `<div class="avatar portrait-photo ${agent.photoClass}" role="img" aria-label="Mock portrait for ${esc(agent.name)}"></div>`;
-      const mode = agent.admin ? "admin" : agent.hold ? "hold" : "";
-      return `<div class="avatar ${mode}" aria-label="${esc(agent.name)} initials fallback">${esc(agent.initials)}</div>`;
+    function avatarFor(agent) {
+      if (agent.portrait) return `<div class="avatar portrait-photo ${esc(agent.portrait)}" aria-label="${esc(agent.name)} mock portrait">${esc(agent.initials)}</div>`;
+      return `<div class="avatar ${agent.admin ? "admin" : ""}" aria-label="${esc(agent.name)} avatar fallback">${esc(agent.initials)}</div>`;
     }
 
-    function renderRow({ title, subtitle, items, dot, escalated = false, businessHours = false, mode = "lifecycle", emptyText = "No active leads in this stage" }) {
-      const cards = [...items].sort((a, b) => a.sort - b.sort).map((lead) => renderCard(lead, mode)).join("");
-      return `<section class="row-panel ${escalated ? "escalated" : ""} ${businessHours ? "business-hours" : ""}">
-        <header class="row-head">
-          <div class="row-title">${dot}<div><h2>${esc(title)}</h2><div class="row-subtext">${esc(subtitle)}</div></div></div>
-        </header>
-        ${items.length ? `<div class="carousel" data-carousel>
-          <button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button>
-          <div class="cards-track">${cards}</div>
-          <button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button>
-        </div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
-      </section>`;
-    }
-
-    function renderCard(lead, mode) {
+    function renderLeadCard(lead, mode) {
       const agent = agentFor(lead.agent);
-      const showStatusLine = mode !== "lifecycle" || lead.stage === "Waiting for Business Hours";
+      const showStatusLine = mode !== "lifecycle";
       return `<button class="lead-card" type="button" data-lead-id="${esc(lead.id)}" data-stage="${esc(lead.stage)}" aria-label="Open ${esc(lead.name)} detail">
         <div>
           ${showStatusLine ? `<span class="status-line">${esc(lead.stage)}</span>` : ""}
@@ -298,42 +281,90 @@
       </button>`;
     }
 
+    function renderRow({ title, subtitle, items, dot, escalated = false, businessHours = false, mode = "lifecycle", emptyText = "No active leads in this queue." }) {
+      const sorted = [...items].sort((a, b) => a.sort - b.sort);
+      const cards = sorted.map((lead) => renderLeadCard(lead, mode)).join("");
+      return `<section class="row-panel ${escalated ? "escalated" : ""} ${businessHours ? "business-hours" : ""}">
+        <header class="row-head"><div class="row-title">${dot}<div><h2>${esc(title)}</h2><div class="row-subtext">${esc(subtitle)}</div></div></div></header>
+        ${sorted.length ? `<div class="carousel" data-carousel><button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button><div class="cards-track">${cards}</div><button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button></div>` : `<div class="empty-state">${esc(emptyText)}</div>`}
+      </section>`;
+    }
+
     function renderLifecycleView(prefix = "") {
+      const data = activeLeads();
       const rows = lifecycleOrder.map((stage) => {
-        const items = activeLeads.filter((lead) => lead.stage === stage);
         const info = lifecycle[stage];
+        const items = stage === "Resolved" ? [] : data.filter((lead) => lead.stage === stage);
         const title = stage === "Escalated to Admin" ? "Exceptions / Escalated-to-Admin" : stage;
-        const subtitle = stage === "Waiting for Business Hours" && serviceWindowOpen ? "0 held leads. Service window is open." : `${items.length} active lead${items.length === 1 ? "" : "s"}. ${info.description}.`;
-        return renderRow({ title, subtitle, items, dot: `<span class="stage-dot" style="background:${info.color}" aria-hidden="true"></span>`, escalated: stage === "Escalated to Admin", businessHours: stage === "Waiting for Business Hours", mode: prefix ? "side-lifecycle" : "lifecycle", emptyText: stage === "Waiting for Business Hours" ? "No leads are currently being held for business hours." : "No active leads in this stage." });
+        const emptyText = stage === "Waiting for Business Hours" && serviceWindowOpen ? "Business hours are open. No leads are currently being held for release." : "No active leads in this stage.";
+        return renderRow({
+          title,
+          subtitle: `${items.length} active lead${items.length === 1 ? "" : "s"}. ${info.description}.`,
+          items,
+          dot: `<span class="stage-dot" style="background:${info.color}" aria-hidden="true"></span>`,
+          escalated: stage === "Escalated to Admin",
+          businessHours: stage === "Waiting for Business Hours",
+          mode: prefix ? "side-lifecycle" : "lifecycle",
+          emptyText
+        });
       });
       return `<div class="stage-stack ${prefix}">${rows.join("")}</div>`;
     }
 
     function renderAgentHeader(agent, count) {
-      return `<div class="agent-headline">${agentPortrait(agent)}<div><h2>${esc(agent.name)}</h2><div class="row-subtext">${count} active lead${count === 1 ? "" : "s"}</div></div></div>`;
+      return `<div class="agent-headline">${avatarFor(agent)}<div><h2>${esc(agent.name)}</h2><div class="row-subtext">${count} active lead${count === 1 ? "" : "s"}</div></div></div>`;
+    }
+
+    function renderAgentRow(agent, items, mode) {
+      const metrics = agent.admin
+        ? `<span class="agent-metric">Escalated Leads: ${items.length}</span>`
+        : `<span class="agent-metric">Avg. Response: ${esc(agent.avgResponse)}</span><span class="agent-metric">Reassignments: ${esc(agent.reassignments)}</span>`;
+      const cards = [...items].sort((a, b) => a.sort - b.sort).map((lead) => renderLeadCard(lead, mode)).join("");
+      return `<section class="row-panel ${agent.admin ? "escalated" : ""}">
+        <header class="row-head"><div class="row-title">${renderAgentHeader(agent, items.length)}</div><div class="agent-metrics">${metrics}</div></header>
+        <div class="carousel" data-carousel><button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button><div class="cards-track">${cards}</div><button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button></div>
+      </section>`;
+    }
+
+    function renderWaitingQueueRow(mode) {
+      const items = serviceWindowOpen ? [] : waitingLeads();
+      return renderRow({
+        title: "Waiting for Business Hours",
+        subtitle: `${items.length} lead${items.length === 1 ? "" : "s"} held until service opens.`,
+        items,
+        dot: `<div class="avatar queue" aria-hidden="true">☾</div>`,
+        businessHours: true,
+        mode,
+        emptyText: "Business hours are open. No leads are currently being held for release."
+      });
     }
 
     function renderAgentView(prefix = "") {
-      const agentOrder = [agents.admin, agents.hold, agents.maya, agents.jordan, agents.alex, agents.sofia];
-      const rows = agentOrder.map((agent) => {
-        const items = activeLeads.filter((lead) => lead.agent === agent.id);
-        return `<section class="row-panel ${agent.admin ? "escalated" : ""} ${agent.hold ? "business-hours" : ""}">
-          <header class="row-head">
-            <div class="row-title">${renderAgentHeader(agent, items.length)}</div>
-            <div class="agent-metrics"><span class="agent-metric">Avg. Response: ${esc(agent.avgResponse)}</span><span class="agent-metric">Reassignments: ${esc(agent.reassignments)}</span></div>
-          </header>
-          ${items.length ? `<div class="carousel" data-carousel>
-            <button class="rail-arrow left" type="button" aria-label="Scroll left" data-scroll="left">‹</button>
-            <div class="cards-track">${[...items].sort((a,b) => a.sort - b.sort).map((lead) => renderCard(lead, prefix ? "side-agent" : "agent")).join("")}</div>
-            <button class="rail-arrow right" type="button" aria-label="Scroll right" data-scroll="right">›</button>
-          </div>` : `<div class="empty-state">No active leads in this row.</div>`}
-        </section>`;
-      });
+      const mode = prefix ? "side-agent" : "agent";
+      const data = activeLeads();
+      const rows = [];
+      const escalated = data.filter((lead) => lead.stage === "Escalated to Admin");
+      if (escalated.length) rows.push(renderAgentRow(agents.admin, escalated, mode));
+
+      if (serviceWindowOpen) {
+        const waitingCount = waitingLeads().length;
+        rows.push(`<div class="minimal-indicator">Waiting for Business Hours: ${waitingCount ? `${waitingCount} held lead${waitingCount === 1 ? "" : "s"}` : "empty"}</div>`);
+        [agents.maya, agents.jordan, agents.alex, agents.sofia].forEach((agent) => {
+          const items = data.filter((lead) => lead.agent === agent.id);
+          if (items.length) rows.push(renderAgentRow(agent, items, mode));
+        });
+      } else {
+        if (waitingLeads().length) rows.push(renderWaitingQueueRow(mode));
+      }
+
+      if (!rows.length) rows.push(`<div class="empty-state">No active queues need attention.</div>`);
       return `<div class="agent-stack agent-mode ${prefix}">${rows.join("")}</div>`;
     }
 
     function renderWorkspace() {
       document.querySelectorAll(".view-tab").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.view === currentView)));
+      document.querySelectorAll(".window-tab").forEach((button) => button.setAttribute("aria-pressed", String((button.dataset.window === "open") === serviceWindowOpen)));
+      renderSummary();
       if (currentView === "agent") workspace.innerHTML = renderAgentView();
       else if (currentView === "side") workspace.innerHTML = `<section class="side-grid"><div class="side-pane"><p class="eyebrow">Lifecycle perspective</p>${renderLifecycleView("side-lifecycle")}</div><div class="side-pane"><p class="eyebrow">Agent perspective</p>${renderAgentView("side-agent")}</div></section>`;
       else workspace.innerHTML = renderLifecycleView();
@@ -348,7 +379,7 @@
       document.getElementById("detailSubtitle").textContent = `${lead.stage} / ${lead.context}`;
       document.getElementById("summaryDetail").innerHTML = [detailItem("Phone", lead.phone), detailItem("Submitted", lead.submitted), detailItem("Source", lead.source), detailItem("Lead", lead.id)].join("");
       document.getElementById("statusDetail").innerHTML = [detailItem("Lifecycle", lead.stage), detailItem("Next Action", lead.context), detailItem("Escalation Reason", lead.escalationReason || "Not escalated"), detailItem("Read-only", lead.eligibleAdminResolution ? "Admin resolution available" : "Normal lead")].join("");
-      document.getElementById("agentDetail").innerHTML = [detailItem("Assigned Context", agent.name), detailItem("Avg. Response", agent.avgResponse), detailItem("Reassignments", agent.reassignments), detailItem("Reassignment History", lead.reassignedHistory ? "Reassigned, now fresh New cycle" : "None shown")].join("");
+      document.getElementById("agentDetail").innerHTML = [detailItem("Assigned Agent", lead.agent ? agent.name : "Pending release"), detailItem("Avg. Response", lead.agent ? agent.avgResponse : "-"), detailItem("Reassignments", lead.agent ? agent.reassignments : "-"), detailItem("Reassignment History", lead.reassignedHistory ? "Reassigned, now fresh New cycle" : "None shown")].join("");
       document.getElementById("timelineDetail").innerHTML = lead.events.map(([time, text]) => `<div class="event"><strong>${esc(text)}</strong><span>${esc(time)}</span></div>`).join("");
       renderResolutionPanel(lead);
       overlay.classList.add("open");
@@ -370,41 +401,38 @@
       });
     }
 
-    function closeLead() {
-      overlay.classList.remove("open");
-      overlay.setAttribute("aria-hidden", "true");
-    }
+    function closeLead() { overlay.classList.remove("open"); overlay.setAttribute("aria-hidden", "true"); }
 
     function wireCarousels() {
       document.querySelectorAll("[data-carousel]").forEach((carousel) => {
         const track = carousel.querySelector(".cards-track");
-        const left = carousel.querySelector(".rail-arrow.left");
-        const right = carousel.querySelector(".rail-arrow.right");
+        const left = carousel.querySelector('[data-scroll="left"]');
+        const right = carousel.querySelector('[data-scroll="right"]');
         const update = () => {
-          const max = Math.max(0, track.scrollWidth - track.clientWidth - 2);
-          left.classList.toggle("visible", track.scrollLeft > 2);
+          const max = Math.max(0, track.scrollWidth - track.clientWidth - 1);
+          left.classList.toggle("visible", track.scrollLeft > 1);
           right.classList.toggle("visible", track.scrollLeft < max);
         };
-        left.addEventListener("click", () => track.scrollBy({ left: -Math.round(track.clientWidth * .86), behavior: "smooth" }));
-        right.addEventListener("click", () => track.scrollBy({ left: Math.round(track.clientWidth * .86), behavior: "smooth" }));
+        left.addEventListener("click", () => track.scrollBy({ left: -Math.round(track.clientWidth * .82), behavior: "smooth" }));
+        right.addEventListener("click", () => track.scrollBy({ left: Math.round(track.clientWidth * .82), behavior: "smooth" }));
         track.addEventListener("scroll", update, { passive: true });
         window.addEventListener("resize", update);
         requestAnimationFrame(update);
       });
     }
 
-    document.querySelectorAll(".view-tab").forEach((button) => button.addEventListener("click", () => { currentView = button.dataset.view; renderWorkspace(); }));
-    workspace.addEventListener("click", (event) => {
+    document.addEventListener("click", (event) => {
+      const viewButton = event.target.closest(".view-tab");
+      if (viewButton) { currentView = viewButton.dataset.view; renderWorkspace(); return; }
+      const windowButton = event.target.closest(".window-tab");
+      if (windowButton) { serviceWindowOpen = windowButton.dataset.window === "open"; renderWorkspace(); return; }
       const card = event.target.closest("[data-lead-id]");
-      if (!card) return;
-      const lead = activeLeads.find((item) => item.id === card.dataset.leadId);
-      if (lead) openLead(lead);
+      if (card) { const lead = leads.find((item) => item.id === card.dataset.leadId); if (lead) openLead(lead); return; }
+      if (event.target === overlay) closeLead();
     });
     closeOverlay.addEventListener("click", closeLead);
-    overlay.addEventListener("click", (event) => { if (event.target === overlay) closeLead(); });
     document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeLead(); });
 
-    renderSummary();
     renderLegend();
     renderWorkspace();
   </script>
