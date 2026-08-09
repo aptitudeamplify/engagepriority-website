@@ -102,6 +102,7 @@ exports.handler = async function handler(event) {
         "source_system",
         "source_detail",
         "full_name",
+        "phone",
         "assigned_agent_id",
         "assigned_timestamp",
         "assignment_ts_utc",
@@ -521,6 +522,7 @@ function deriveLeadRecord({
     received_ts_utc: receivedTsUtc || null,
     received_display: formatTimeDisplay(receivedTsUtc, clientTimezone),
     lead_name: sanitizedText(leadRow.full_name) || "Lead",
+    phone_display: maskPhoneDisplay(leadRow.phone),
     source: {
       source_system: sourceSystem || null,
       source_detail: sourceDetail || null
@@ -1006,9 +1008,34 @@ function sanitizedText(value) {
   return String(value || "").trim().replace(/\s+/g, " ");
 }
 
+function maskPhoneDisplay(value) {
+  const raw = trimmed(value);
+
+  if (!raw) {
+    return null;
+  }
+
+  if (!/^\+?[\d\s().-]+$/.test(raw)) {
+    return null;
+  }
+
+  const digits = raw.replace(/\D/g, "");
+  const national = digits.length === 11 && digits.startsWith("1")
+    ? digits.slice(1)
+    : digits;
+
+  if (national.length !== 10) {
+    return null;
+  }
+
+  return `(${national.slice(0, 3)}) ***-${national.slice(-4)}`;
+}
+
 module.exports = {
   handler: exports.handler,
   _test: {
+    deriveLeadRecord,
+    maskPhoneDisplay,
     sameClient,
     sortLeadRecords
   }

@@ -79,4 +79,8 @@ Therefore, while the flag is true:
 
 ## Privacy and authority boundaries
 
-The contract remains authenticated and client-scoped. It returns agent identity, initials fallback, active lead references, operational metrics, lifecycle presentation fields, and current service-window state. It does not add agent photos, expose broader contact information, or change administrator-resolution behavior.
+The contract remains authenticated and client-scoped. It returns agent identity, initials fallback, active lead references, operational metrics, lifecycle presentation fields, and current service-window state. It does not add agent photos or change administrator-resolution behavior.
+
+Each public lead may include `phone_display`. This is a presentation-only masked value derived from the authoritative lead phone, for example `(713) ***-0142`. It is `null` when the source is unavailable or cannot be safely normalized. The complete phone number is never returned by `control-tower-data.js`.
+
+`phone_display` is non-authoritative for outbound contact. It is not a replacement for the protected contact payload returned only through the established eligible escalation-detail reveal path. Full phone and email access, explicit reveal, administrator eligibility checks, and client isolation remain unchanged.
