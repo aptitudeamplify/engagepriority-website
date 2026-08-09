@@ -97,11 +97,13 @@
     .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border: 1px solid rgba(15,23,42,.15); border-radius: 999px; background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .lifecycle-waiting-for-business-hours .lead-meta, .lifecycle-waiting-for-business-hours .lead-context { color: #edf5ff; }
     .lifecycle-waiting-for-business-hours .lead-context { border-color: rgba(255,255,255,.25); }
-    .drawer-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(2,6,23,.58); backdrop-filter: blur(6px); }
-    .drawer { width: min(100%, 600px); height: 100%; overflow-y: auto; border-left: 1px solid #e2e8f0; background: white; box-shadow: -20px 0 50px rgba(15,23,42,.18); }
-    .drawer-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); }
-    .drawer-head h2 { margin-bottom: 2px; }
-    .drawer-body { display: grid; gap: 16px; padding: 20px; }
+    .workspace-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: clamp(16px,3vw,42px); background: rgba(2,6,23,.55); backdrop-filter: blur(7px); }
+    .lead-workspace { width: min(82vw,1280px); max-height: 84vh; overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(226,232,240,.95); border-radius: 30px; background: #f8fafc; box-shadow: 0 34px 90px rgba(2,6,23,.3); }
+    .workspace-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 22px; padding: 22px 26px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); backdrop-filter: blur(14px); }
+    .workspace-head h2 { margin-bottom: 3px; font-size: clamp(1.55rem,3vw,2.25rem); letter-spacing: -.045em; }
+    .workspace-body { display: grid; gap: 18px; padding: clamp(18px,2.5vw,30px); }
+    .workspace-columns { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(300px,.95fr); align-items: start; gap: 18px; }
+    .workspace-stack { display: grid; gap: 18px; }
     .detail-panel { padding: 18px; border: 1px solid #e2e8f0; border-radius: 18px; background: white; }
     .detail-panel h3 { margin-bottom: 13px; }
     .detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
@@ -114,8 +116,8 @@
     .resolution-controls { display: grid; gap: 12px; }
     .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 12px; background: white; }
-    @media (max-width: 780px) { .summary-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .statusbar, .view-heading, .viewbar { align-items: flex-start; flex-direction: column; } }
-    @media (max-width: 640px) { .shell { width: min(100% - 18px,1540px); padding-top: 8px; } .topbar { top: 6px; align-items: flex-start; border-radius: 20px; } .brand img { height: 34px; } .brand h1 { font-size: 1.1rem; } .actions { flex-direction: column; } .button { padding: 8px 10px; } .metric { min-height: 74px; padding: 12px; } .cards-track { grid-auto-columns: clamp(170px,72vw,216px); } .row-head { align-items: flex-start; flex-direction: column; padding-inline: 14px; } .agent-metrics { justify-content: flex-start; } .detail-grid, .contact-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 780px) { .summary-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .statusbar, .view-heading, .viewbar { align-items: flex-start; flex-direction: column; } .workspace-backdrop { padding: 0; } .lead-workspace { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; } .workspace-columns { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px,1540px); padding-top: 8px; } .topbar { top: 6px; align-items: flex-start; border-radius: 20px; } .brand img { height: 34px; } .brand h1 { font-size: 1.1rem; } .actions { flex-direction: column; } .button { padding: 8px 10px; } .metric { min-height: 74px; padding: 12px; } .cards-track { grid-auto-columns: clamp(170px,72vw,216px); } .row-head { align-items: flex-start; flex-direction: column; padding-inline: 14px; } .agent-metrics { justify-content: flex-start; } .workspace-head { padding: 16px; } .workspace-body { padding: 14px; } .detail-grid, .contact-grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
@@ -167,42 +169,48 @@
     </div>
   </main>
 
-  <div id="detailDrawerOverlay" class="drawer-backdrop hidden" aria-hidden="true">
-    <aside class="drawer" aria-label="Lead detail">
-      <header class="drawer-head">
-        <div><p class="eyebrow">Lead Detail</p><h2 id="drawerLeadName">-</h2><p id="drawerLeadMeta" class="row-subtext">-</p></div>
-        <button id="drawerCloseButton" class="button" type="button">Close</button>
+  <div id="leadWorkspaceOverlay" class="workspace-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="workspaceLeadName" aria-hidden="true">
+    <article class="lead-workspace" aria-label="Focused lead workspace">
+      <header class="workspace-head">
+        <div><p class="eyebrow">Lead Workspace</p><h2 id="workspaceLeadName">-</h2><p id="workspaceLeadMeta" class="row-subtext">-</p></div>
+        <button id="workspaceCloseButton" class="button" type="button" aria-label="Close lead workspace">Close</button>
       </header>
-      <div class="drawer-body">
-        <section class="detail-panel"><h3>Lead Summary</h3><div id="drawerSummary" class="detail-grid"></div></section>
-        <section class="detail-panel"><h3>Lifecycle history</h3><div id="drawerLifecycleEvents" class="timeline"></div></section>
-        <section id="adminResolutionSection" class="detail-panel hidden">
-          <p class="eyebrow">Admin Escalation</p><h3>Resolve escalated lead</h3>
-          <p id="adminResolutionExistingState" class="resolution-message hidden"></p>
-          <div id="adminResolutionControls" class="resolution-controls">
-            <p class="row-subtext">Contact details are hidden until explicitly revealed for resolution.</p>
-            <button id="showResolutionDetailsButton" class="button" type="button">Show resolution details</button>
-            <div id="resolutionDetailsPanel" class="resolution-controls hidden">
-              <div class="contact-grid">
-                <div class="detail-item"><span>Phone</span><strong id="drawerResolutionPhone">-</strong></div>
-                <div class="detail-item"><span>Email</span><strong id="drawerResolutionEmail">-</strong></div>
-              </div>
-              <label class="detail-item"><span>Resolution outcome</span>
-                <select id="adminResolutionOutcome">
-                  <option value="">Select outcome</option>
-                  <option value="ADMIN_CONTACTED_APPOINTMENT_SET">Contacted — Appointment Set</option>
-                  <option value="ADMIN_CONTACTED_NOT_INTERESTED">Contacted — Not Interested</option>
-                  <option value="ADMIN_NO_ANSWER">No Answer — Admin Attempted</option>
-                  <option value="ADMIN_NO_ACTION">No Action — Admin Closed</option>
-                </select>
-              </label>
-              <button id="submitAdminResolutionButton" class="button primary" type="button">Resolve escalation</button>
-            </div>
-            <p id="adminResolutionMessage" class="resolution-message"></p>
+      <div class="workspace-body">
+        <section class="detail-panel"><h3>Lead Summary</h3><div id="workspaceSummary" class="detail-grid"></div></section>
+        <div class="workspace-columns">
+          <div class="workspace-stack">
+            <section class="detail-panel"><h3>Current Status</h3><div id="workspaceCurrentStatus" class="detail-grid"></div></section>
+            <section class="detail-panel"><h3>Assigned Agent / Response Context</h3><div id="workspaceResponseContext" class="detail-grid"></div></section>
+            <section class="detail-panel"><h3>Lifecycle History</h3><div id="workspaceLifecycleEvents" class="timeline"></div></section>
           </div>
-        </section>
+          <section id="adminResolutionSection" class="detail-panel hidden">
+            <p class="eyebrow">Admin Escalation</p><h3>Administrator Resolution</h3>
+            <p id="adminResolutionExistingState" class="resolution-message hidden"></p>
+            <div id="adminResolutionControls" class="resolution-controls">
+              <p class="row-subtext">Contact details are hidden until explicitly revealed for resolution.</p>
+              <button id="showResolutionDetailsButton" class="button" type="button">Show resolution details</button>
+              <div id="resolutionDetailsPanel" class="resolution-controls hidden">
+                <div class="contact-grid">
+                  <div class="detail-item"><span>Phone</span><strong id="workspaceResolutionPhone">-</strong></div>
+                  <div class="detail-item"><span>Email</span><strong id="workspaceResolutionEmail">-</strong></div>
+                </div>
+                <label class="detail-item"><span>Resolution outcome</span>
+                  <select id="adminResolutionOutcome">
+                    <option value="">Select outcome</option>
+                    <option value="ADMIN_CONTACTED_APPOINTMENT_SET">Contacted — Appointment Set</option>
+                    <option value="ADMIN_CONTACTED_NOT_INTERESTED">Contacted — Not Interested</option>
+                    <option value="ADMIN_NO_ANSWER">No Answer — Admin Attempted</option>
+                    <option value="ADMIN_NO_ACTION">No Action — Admin Closed</option>
+                  </select>
+                </label>
+                <button id="submitAdminResolutionButton" class="button primary" type="button">Resolve escalation</button>
+              </div>
+              <p id="adminResolutionMessage" class="resolution-message" aria-live="polite"></p>
+            </div>
+          </section>
+        </div>
       </div>
-    </aside>
+    </article>
   </div>
 
   <script src="control-tower-lifecycle-view.js"></script>
@@ -211,17 +219,18 @@
     const elements = Object.fromEntries([
       "sessionLoadingState", "accessErrorState", "appShell", "refreshButton", "logoutButton", "retryButton",
       "dataLoadingState", "dataErrorState", "dashboardContent", "summaryStrip", "operationalRows", "lastUpdatedText",
-      "visibleCountText", "serviceWindowText", "viewEyebrow", "viewTitle", "viewDescription", "detailDrawerOverlay", "drawerCloseButton", "drawerLeadName",
-      "drawerLeadMeta", "drawerSummary", "drawerLifecycleEvents", "adminResolutionSection", "adminResolutionExistingState",
+      "visibleCountText", "serviceWindowText", "viewEyebrow", "viewTitle", "viewDescription", "leadWorkspaceOverlay", "workspaceCloseButton", "workspaceLeadName",
+      "workspaceLeadMeta", "workspaceSummary", "workspaceCurrentStatus", "workspaceResponseContext", "workspaceLifecycleEvents", "adminResolutionSection", "adminResolutionExistingState",
       "adminResolutionControls", "showResolutionDetailsButton", "resolutionDetailsPanel", "adminResolutionOutcome",
-      "submitAdminResolutionButton", "adminResolutionMessage", "drawerResolutionPhone", "drawerResolutionEmail"
+      "submitAdminResolutionButton", "adminResolutionMessage", "workspaceResolutionPhone", "workspaceResolutionEmail"
     ].map(id => [id, document.getElementById(id)]));
 
     let currentLeads = [];
     let currentAgents = [];
     let currentServiceWindow = {};
     let currentView = view.DEFAULT_VIEW;
-    let activeDrawerLead = null;
+    let activeWorkspaceLead = null;
+    let workspaceOrigin = null;
     let resolutionDetailsLoaded = false;
 
     async function checkSession() {
@@ -245,7 +254,7 @@
 
     async function loadDashboardData() {
       setDataLoading(true);
-      closeLeadDrawer();
+      closeLeadWorkspace();
       try {
         const response = await fetch("/.netlify/functions/control-tower-data", { headers: { Accept: "application/json" } });
         const result = await safeJson(response);
@@ -553,7 +562,7 @@
       context.className = "lead-context";
       context.textContent = responseContext(lead, lead.lifecycle?.key || row.key);
       card.append(body, context);
-      card.addEventListener("click", () => openLeadDrawer(lead.lead_id));
+      card.addEventListener("click", () => openLeadWorkspace(lead.lead_id, card));
       return card;
     }
 
@@ -596,38 +605,70 @@
       });
     }
 
-    function openLeadDrawer(leadId) {
+    function openLeadWorkspace(leadId, origin) {
       const lead = currentLeads.find(item => item.lead_id === leadId);
       if (!lead) return;
-      activeDrawerLead = lead;
-      elements.drawerLeadName.textContent = textOrFallback(lead.lead_name, "Lead");
-      elements.drawerLeadMeta.textContent = [lead.phone_display, lead.received_display, lead.lifecycle?.label].filter(Boolean).join(" · ") || "-";
-      elements.drawerSummary.replaceChildren(
-        detailItem("Assigned agent", lead.assigned_agent?.agent_id ? lead.assigned_agent.agent_name : "Not assigned"),
-        detailItem("Status", lead.status?.primary),
-        detailItem("Source", sourceLabel(lead.source)),
-        detailItem("Next action", responseContext(lead, lead.lifecycle?.key)),
+      activeWorkspaceLead = lead;
+      workspaceOrigin = origin || document.activeElement;
+      elements.workspaceLeadName.textContent = textOrFallback(lead.lead_name, "Lead");
+      elements.workspaceLeadMeta.textContent = [lead.phone_display, lead.received_display, lead.lifecycle?.label].filter(Boolean).join(" · ") || "-";
+      elements.workspaceSummary.replaceChildren(
+        detailItem("Masked phone", lead.phone_display),
+        detailItem("Received", lead.received_display || formatDateTime(lead.received_ts_utc)),
+        detailItem("Source", sourceLabel(lead.source))
+      );
+      elements.workspaceCurrentStatus.replaceChildren(
+        detailItem("Lifecycle stage", lead.lifecycle?.label),
+        detailItem("Operational status", lead.status?.primary),
         detailItem("Risk", lead.risk?.label),
-        detailItem("Current owner ID", lead.drawer?.current_assigned_agent_id),
-        detailItem("Gateway stage", lead.drawer?.gateway_context),
-        detailItem("Last agent action", lead.drawer?.selected_action),
+        detailItem("Active gateway", lead.drawer?.active_gateway_state),
         detailItem("Escalation state", lead.drawer?.escalation_state),
         detailItem("Final outcome", lead.drawer?.final_outcome)
       );
+      elements.workspaceResponseContext.replaceChildren(
+        detailItem("Assigned agent", lead.assigned_agent?.agent_id ? lead.assigned_agent.agent_name : "Not assigned"),
+        detailItem("Next action", responseContext(lead, lead.lifecycle?.key)),
+        detailItem("Reassignments", lead.counts?.reassignment_count),
+        detailItem("Release-time agent", lead.drawer?.release_time_assigned_agent_id),
+        detailItem("Last agent action", lead.drawer?.selected_action),
+        detailItem("Gateway stage", lead.drawer?.gateway_context)
+      );
       renderLifecycleEvents(lead.drawer?.recent_lifecycle_events || []);
       resetAdminResolutionPanel(lead);
-      elements.detailDrawerOverlay.classList.remove("hidden");
-      elements.detailDrawerOverlay.setAttribute("aria-hidden", "false");
+      elements.leadWorkspaceOverlay.classList.remove("hidden");
+      elements.leadWorkspaceOverlay.setAttribute("aria-hidden", "false");
+      document.querySelector("main").inert = true;
       document.body.style.overflow = "hidden";
-      elements.drawerCloseButton.focus();
+      elements.workspaceCloseButton.focus();
     }
 
-    function closeLeadDrawer() {
-      elements.detailDrawerOverlay.classList.add("hidden");
-      elements.detailDrawerOverlay.setAttribute("aria-hidden", "true");
+    function closeLeadWorkspace() {
+      if (elements.leadWorkspaceOverlay.classList.contains("hidden")) return;
+      const returnTarget = workspaceOrigin;
+      elements.leadWorkspaceOverlay.classList.add("hidden");
+      elements.leadWorkspaceOverlay.setAttribute("aria-hidden", "true");
+      document.querySelector("main").inert = false;
       document.body.style.overflow = "";
-      activeDrawerLead = null;
+      activeWorkspaceLead = null;
+      workspaceOrigin = null;
       resolutionDetailsLoaded = false;
+      if (returnTarget?.isConnected && typeof returnTarget.focus === "function") returnTarget.focus();
+    }
+
+    function trapWorkspaceFocus(event) {
+      if (event.key !== "Tab" || elements.leadWorkspaceOverlay.classList.contains("hidden")) return;
+      const focusable = [...elements.leadWorkspaceOverlay.querySelectorAll("button:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")]
+        .filter(item => !item.closest(".hidden"));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     function resetAdminResolutionPanel(lead) {
@@ -644,8 +685,8 @@
       elements.submitAdminResolutionButton.textContent = "Resolve escalation";
       elements.adminResolutionOutcome.value = "";
       elements.adminResolutionMessage.textContent = "";
-      elements.drawerResolutionPhone.textContent = "-";
-      elements.drawerResolutionEmail.textContent = "-";
+      elements.workspaceResolutionPhone.textContent = "-";
+      elements.workspaceResolutionEmail.textContent = "-";
       if (drawer.admin_resolution_status) {
         elements.adminResolutionSection.classList.remove("hidden");
         elements.adminResolutionControls.classList.add("hidden");
@@ -657,17 +698,17 @@
     }
 
     async function revealResolutionDetails() {
-      if (!activeDrawerLead?.lead_id || resolutionDetailsLoaded) return;
+      if (!activeWorkspaceLead?.lead_id || resolutionDetailsLoaded) return;
       elements.showResolutionDetailsButton.disabled = true;
       elements.showResolutionDetailsButton.textContent = "Loading details...";
       elements.adminResolutionMessage.textContent = "";
       try {
-        const params = new URLSearchParams({ lead_id: activeDrawerLead.lead_id });
+        const params = new URLSearchParams({ lead_id: activeWorkspaceLead.lead_id });
         const response = await fetch(`/.netlify/functions/control-tower-escalation-detail?${params}`, { headers: { Accept: "application/json" } });
         const result = await safeJson(response);
         if (!response.ok || result.ok !== true || !result.lead) throw new Error(result.error?.message || "Resolution details could not be loaded.");
-        elements.drawerResolutionPhone.textContent = textOrFallback(result.lead.phone, "-");
-        elements.drawerResolutionEmail.textContent = textOrFallback(result.lead.email, "-");
+        elements.workspaceResolutionPhone.textContent = textOrFallback(result.lead.phone, "-");
+        elements.workspaceResolutionEmail.textContent = textOrFallback(result.lead.email, "-");
         elements.resolutionDetailsPanel.classList.remove("hidden");
         elements.showResolutionDetailsButton.classList.add("hidden");
         resolutionDetailsLoaded = true;
@@ -680,7 +721,7 @@
 
     async function submitAdminResolution() {
       const status = String(elements.adminResolutionOutcome.value || "").trim();
-      if (!activeDrawerLead?.lead_id || !status) {
+      if (!activeWorkspaceLead?.lead_id || !status) {
         elements.adminResolutionMessage.textContent = "Select a resolution outcome before resolving the escalation.";
         return;
       }
@@ -690,7 +731,7 @@
         const response = await fetch("/.netlify/functions/control-tower-resolve-escalation", {
           method: "POST",
           headers: { Accept: "application/json", "Content-Type": "application/json" },
-          body: JSON.stringify({ lead_id: activeDrawerLead.lead_id, admin_resolution_status: status })
+          body: JSON.stringify({ lead_id: activeWorkspaceLead.lead_id, admin_resolution_status: status })
         });
         const result = await safeJson(response);
         if (!response.ok || result.ok !== true) throw new Error(result.error?.message || "The escalation could not be resolved.");
@@ -707,9 +748,9 @@
       const safeEvents = Array.isArray(events) ? events : [];
       if (!safeEvents.length) {
         const empty = document.createElement("p"); empty.className = "row-subtext"; empty.textContent = "No recent lifecycle events available.";
-        elements.drawerLifecycleEvents.replaceChildren(empty); return;
+        elements.workspaceLifecycleEvents.replaceChildren(empty); return;
       }
-      elements.drawerLifecycleEvents.replaceChildren(...safeEvents.map(event => {
+      elements.workspaceLifecycleEvents.replaceChildren(...safeEvents.slice().reverse().map(event => {
         const item = document.createElement("div"); item.className = "timeline-item";
         const label = document.createElement("strong"); label.textContent = textOrFallback(event.event_label, "Lifecycle event");
         const meta = document.createElement("span"); meta.textContent = [formatDateTime(event.event_ts_utc), event.event_stage, event.selected_action].filter(Boolean).join(" · ");
@@ -770,11 +811,14 @@
         renderOperationalView();
       });
     });
-    elements.drawerCloseButton.addEventListener("click", closeLeadDrawer);
-    elements.detailDrawerOverlay.addEventListener("click", event => { if (event.target === elements.detailDrawerOverlay) closeLeadDrawer(); });
+    elements.workspaceCloseButton.addEventListener("click", closeLeadWorkspace);
+    elements.leadWorkspaceOverlay.addEventListener("click", event => { if (event.target === elements.leadWorkspaceOverlay) closeLeadWorkspace(); });
+    elements.leadWorkspaceOverlay.addEventListener("keydown", trapWorkspaceFocus);
     elements.showResolutionDetailsButton.addEventListener("click", revealResolutionDetails);
     elements.submitAdminResolutionButton.addEventListener("click", submitAdminResolution);
-    document.addEventListener("keydown", event => { if (event.key === "Escape") closeLeadDrawer(); });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !elements.leadWorkspaceOverlay.classList.contains("hidden")) closeLeadWorkspace();
+    });
     checkSession();
   </script>
 </body>
