@@ -4,1223 +4,821 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EngagePriority Control Tower</title>
-  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap');
-
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #07111f;
-      color: #0f172a;
-      margin: 0;
+    :root {
+      color-scheme: light;
+      --page: #f6f8fb;
+      --ink: #172033;
+      --muted: #647084;
+      --line: #d9e1eb;
+      --brand: #0f766e;
+      --brand-strong: #0891b2;
+      --panel: rgba(255,255,255,.96);
+      --shadow: 0 18px 50px rgba(15,23,42,.11);
     }
-
-    .page-bg {
-      background:
-        radial-gradient(circle at 18% 0%, rgba(20, 184, 166, 0.13) 0%, rgba(20, 184, 166, 0) 30%),
-        radial-gradient(circle at 82% 0%, rgba(56, 189, 248, 0.10) 0%, rgba(56, 189, 248, 0) 28%),
-        linear-gradient(135deg, #07111f 0%, #0f172a 46%, #111827 100%);
-    }
-
-    .surface {
-      background: rgba(255, 255, 255, 0.98);
-      border: 1px solid rgba(226, 232, 240, 0.95);
-      box-shadow: 0 24px 60px rgba(15, 23, 42, 0.10);
-    }
-
-    .card {
-      background: #ffffff;
-      border: 1px solid #e2e8f0;
-      box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
-    }
-
-    .btn-primary {
-      background: linear-gradient(135deg, #0f766e, #0891b2);
-      transition: all 0.2s ease;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 14px 30px -10px rgba(8, 145, 178, 0.55);
-    }
-
-    .btn-secondary {
-      background: transparent;
-      border: 1px solid #cbd5e1;
-      transition: all 0.2s ease;
-    }
-
-    .btn-secondary:hover {
-      border-color: #0891b2;
-      background: rgba(8, 145, 178, 0.08);
-    }
-
-    .btn-primary:disabled,
-    .btn-secondary:disabled {
-      cursor: not-allowed;
-      opacity: 0.55;
-      transform: none;
-      box-shadow: none;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      border-radius: 9999px;
-      border: 1px solid #cbd5e1;
-      background: #f8fafc;
-      padding: 0.22rem 0.6rem;
-      font-size: 0.72rem;
-      color: #475569;
-      white-space: nowrap;
-    }
-
-    .risk-escalated {
-      color: #991b1b;
-      background: #fef2f2;
-      border-color: #fecaca;
-    }
-
-    .risk-overdue {
-      color: #9a3412;
-      background: #fff7ed;
-      border-color: #fed7aa;
-    }
-
-    .risk-needs-action {
-      color: #854d0e;
-      background: #fffbeb;
-      border-color: #fde68a;
-    }
-
-    .risk-on-track {
-      color: #075985;
-      background: #f0f9ff;
-      border-color: #bae6fd;
-    }
-
-    .risk-closed {
-      color: #166534;
-      background: #f0fdf4;
-      border-color: #bbf7d0;
-    }
-
-    .filter-button-active {
-      border-color: #0891b2 !important;
-      background: rgba(8, 145, 178, 0.10) !important;
-      color: #0e7490 !important;
-    }
-
-    .summary-card-active {
-      border-color: #0284c7 !important;
-      background: linear-gradient(180deg, #ffffff 0%, #eff6ff 100%) !important;
-      box-shadow: 0 22px 55px rgba(2, 132, 199, 0.16);
-    }
-
-    .summary-card-active .summary-card-label {
-      color: #1e3a5f !important;
-    }
-
-    .summary-card-active .summary-card-value {
-      color: #075985 !important;
-    }
-
-    .compact-summary-active {
-      border-color: #0284c7 !important;
-      background: #eff6ff !important;
-      color: #075985 !important;
-    }
-
-    .control-context-sticky {
-      position: sticky;
-      top: 5rem;
-      z-index: 40;
-      background: rgba(255, 255, 255, 0.96);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-    }
-
-    .compact-summary-button {
-      min-width: max-content;
-    }
-
-    .compact-column-header {
-      border-top: 1px solid rgba(203, 213, 225, 0.7);
-      color: #64748b;
-    }
-
-    @media (max-width: 640px) {
-      .control-context-sticky {
-        top: 4.75rem;
-      }
-    }
-
-    .drawer-backdrop {
-      background: rgba(2, 6, 23, 0.58);
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: radial-gradient(circle at 12% 0%, rgba(15,118,110,.15), transparent 26rem), radial-gradient(circle at 88% 0%, rgba(31,58,95,.12), transparent 30rem), var(--page); }
+    button, select { font: inherit; }
+    button { touch-action: manipulation; }
+    .hidden { display: none !important; }
+    .shell { width: min(1540px, calc(100% - 28px)); margin: 0 auto; padding: 18px 0 54px; }
+    .topbar { position: sticky; top: 12px; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 18px; border: 1px solid rgba(217,225,235,.88); border-radius: 26px; background: rgba(255,255,255,.92); box-shadow: var(--shadow); backdrop-filter: blur(16px); }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand img { width: auto; height: 42px; }
+    .eyebrow { margin: 0 0 4px; color: var(--brand); font-size: .72rem; font-weight: 850; letter-spacing: .17em; text-transform: uppercase; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 0; font-size: clamp(1.45rem, 3vw, 2.3rem); letter-spacing: -.045em; }
+    .actions { display: flex; gap: 8px; }
+    .button { border: 1px solid #cbd5e1; border-radius: 13px; padding: 9px 13px; background: white; color: #334155; font-weight: 800; cursor: pointer; }
+    .button:hover, .button:focus-visible { border-color: var(--brand-strong); outline: 3px solid rgba(8,145,178,.17); }
+    .button.primary { border-color: transparent; background: linear-gradient(135deg, var(--brand), var(--brand-strong)); color: white; }
+    .button:disabled { cursor: not-allowed; opacity: .55; }
+    .state { margin-top: 18px; padding: 34px; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); text-align: center; box-shadow: var(--shadow); }
+    .state h2 { margin-bottom: 8px; }
+    .state p { margin-bottom: 0; color: var(--muted); }
+    .statusbar { display: flex; justify-content: space-between; gap: 14px; align-items: end; margin: 22px 2px 10px; }
+    .statusbar h2 { margin-bottom: 3px; font-size: 1.15rem; }
+    .statusbar p { margin-bottom: 0; color: var(--muted); font-size: .85rem; }
+    .summary-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin: 14px 0 18px; }
+    .metric { min-height: 82px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); box-shadow: 0 10px 30px rgba(15,23,42,.06); }
+    .metric span { display: block; margin-bottom: 7px; color: var(--muted); font-size: .7rem; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
+    .metric strong { display: block; font-size: clamp(1.4rem,3vw,2.1rem); letter-spacing: -.05em; }
+    .viewbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); box-shadow: 0 12px 35px rgba(15,23,42,.07); }
+    .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+    .view-tab { border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; background: white; color: #42526a; font-weight: 850; cursor: pointer; }
+    .view-tab:hover, .view-tab:focus-visible { border-color: var(--brand-strong); outline: 3px solid rgba(8,145,178,.17); }
+    .view-tab[aria-pressed="true"] { border-color: transparent; background: linear-gradient(135deg, var(--brand), var(--brand-strong)); color: white; }
+    .view-note { color: var(--muted); font-size: .84rem; font-weight: 700; }
+    .view-heading { display: flex; justify-content: space-between; gap: 14px; align-items: end; margin-bottom: 13px; }
+    .view-heading h2 { margin-bottom: 3px; font-size: clamp(1.35rem,2.4vw,1.85rem); }
+    .view-heading p { margin-bottom: 0; color: var(--muted); font-size: .88rem; }
+    .stage-stack { display: grid; gap: 15px; }
+    .row-panel { overflow: hidden; border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 16px 44px rgba(15,23,42,.08); }
+    .row-panel.escalated { border-color: #ffc2c2; box-shadow: 0 18px 48px rgba(185,28,28,.13); }
+    .row-panel.business-hours { border-color: #334e74; box-shadow: 0 18px 48px rgba(31,58,95,.16); }
+    .row-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 15px 18px 8px; }
+    .row-title { display: flex; align-items: center; gap: 11px; min-width: 0; }
+    .stage-dot { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid rgba(15,23,42,.16); border-radius: 999px; }
+    .row-head h3 { margin-bottom: 1px; font-size: clamp(1.05rem,1.8vw,1.4rem); letter-spacing: -.035em; }
+    .row-subtext { margin-bottom: 0; color: var(--muted); font-size: .84rem; font-weight: 650; }
+    .agent-headline { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .avatar { width: 48px; height: 48px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border-radius: 17px; background: linear-gradient(145deg, #0f766e, #7c3aed); color: white; font-weight: 900; box-shadow: inset 0 0 0 2px rgba(255,255,255,.35), 0 10px 22px rgba(15,23,42,.13); }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .avatar.admin { background: linear-gradient(145deg, #991b1b, #fb7185); }
+    .queue-icon { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 15px; background: linear-gradient(145deg, #1f3a5f, #0f172a); color: white; font-size: 1.25rem; }
+    .agent-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .agent-metric { padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #405069; font-size: .78rem; font-weight: 800; }
+    .minimal-indicator { width: fit-content; margin-bottom: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.75); color: var(--muted); font-size: .82rem; font-weight: 800; }
+    .side-by-side { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,560px),1fr)); align-items: start; gap: 18px; }
+    .perspective-pane { min-width: 0; }
+    .pane-heading { margin: 0 2px 11px; }
+    .pane-heading h2 { margin-bottom: 3px; font-size: clamp(1.15rem,1.7vw,1.45rem); }
+    .pane-heading p { margin-bottom: 0; color: var(--muted); font-size: .82rem; }
+    .perspective-pane .cards-track { grid-auto-columns: clamp(180px,31%,225px); }
+    .empty-state { margin: 5px 18px 18px; padding: 15px; border: 1px dashed var(--line); border-radius: 16px; background: #f8fafc; color: var(--muted); font-size: .88rem; }
+    .business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
+    .carousel { position: relative; }
+    .cards-track { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(170px,15.8%,225px); gap: 11px; overflow-x: auto; padding: 5px 18px 18px; scroll-behavior: smooth; scrollbar-width: thin; overscroll-behavior-inline: contain; scroll-snap-type: x proximity; }
+    .rail-arrow { position: absolute; top: 50%; z-index: 5; display: none; width: 38px; height: 58px; transform: translateY(-50%); place-items: center; border: 1px solid rgba(15,23,42,.12); border-radius: 18px; background: rgba(255,255,255,.92); color: #18324c; box-shadow: 0 12px 30px rgba(15,23,42,.16); font-size: 1.7rem; font-weight: 900; line-height: 1; cursor: pointer; }
+    .rail-arrow.visible { display: grid; }
+    .rail-arrow.left { left: 8px; }
+    .rail-arrow.right { right: 8px; }
+    .lead-card { width: 100%; min-height: 164px; display: grid; align-content: space-between; gap: 10px; padding: 13px; border: 1px solid rgba(15,23,42,.13); border-radius: 20px; color: #182238; box-shadow: 0 12px 26px rgba(15,23,42,.08); text-align: left; cursor: pointer; scroll-snap-align: start; }
+    .lead-card:hover, .lead-card:focus-visible { outline: 3px solid rgba(8,145,178,.25); transform: translateY(-1px); }
+    .lifecycle-escalated-to-admin { background: #FFD6D6; }
+    .lifecycle-waiting-for-business-hours { border-color: #20334f; background: #1F3A5F; color: white; }
+    .lifecycle-new { background: #BFFBB6; }
+    .lifecycle-reminder-sent { background: #D9EEFF; }
+    .lifecycle-waiting-for-outcome-response { background: #E8E0FF; }
+    .lifecycle-at-risk { background: #FFF0B8; }
+    .lead-name { margin-bottom: 8px; font-size: 1.02rem; font-weight: 900; letter-spacing: -.02em; }
+    .lead-meta { display: grid; gap: 4px; color: #536178; font-size: .78rem; font-weight: 650; }
+    .lead-context { padding-top: 9px; border-top: 1px solid rgba(15,23,42,.14); color: #34435b; font-size: .78rem; font-weight: 800; }
+    .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border: 1px solid rgba(15,23,42,.15); border-radius: 999px; background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .lifecycle-waiting-for-business-hours .lead-meta, .lifecycle-waiting-for-business-hours .lead-context { color: #edf5ff; }
+    .lifecycle-waiting-for-business-hours .lead-context { border-color: rgba(255,255,255,.25); }
+    .workspace-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: clamp(16px,3vw,42px); background: rgba(2,6,23,.55); backdrop-filter: blur(7px); }
+    .lead-workspace { width: min(82vw,1280px); max-height: 84vh; overflow-x: hidden; overflow-y: auto; border: 1px solid rgba(226,232,240,.95); border-radius: 30px; background: #f8fafc; box-shadow: 0 34px 90px rgba(2,6,23,.3); }
+    .workspace-head { position: sticky; top: 0; z-index: 2; display: flex; justify-content: space-between; gap: 22px; padding: 22px 26px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); backdrop-filter: blur(14px); }
+    .workspace-head h2 { margin-bottom: 3px; font-size: clamp(1.55rem,3vw,2.25rem); letter-spacing: -.045em; }
+    .workspace-body { display: grid; gap: 18px; padding: clamp(18px,2.5vw,30px); }
+    .workspace-columns { display: grid; grid-template-columns: minmax(0,1.05fr) minmax(300px,.95fr); align-items: start; gap: 18px; }
+    .workspace-stack { display: grid; gap: 18px; }
+    .detail-panel { padding: 18px; border: 1px solid #e2e8f0; border-radius: 18px; background: white; }
+    .detail-panel h3 { margin-bottom: 13px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+    .detail-item span { display: block; margin-bottom: 3px; color: var(--muted); font-size: .7rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    .detail-item strong { overflow-wrap: anywhere; }
+    .timeline { display: grid; gap: 8px; }
+    .timeline-item { padding: 11px; border-radius: 12px; background: #f8fafc; }
+    .timeline-item span { display: block; margin-top: 3px; color: var(--muted); font-size: .78rem; }
+    .resolution-message { margin: 12px 0 0; color: var(--muted); font-size: .85rem; }
+    .resolution-controls { display: grid; gap: 12px; }
+    .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 12px; background: white; }
+    @media (max-width: 780px) { .summary-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .statusbar, .view-heading, .viewbar { align-items: flex-start; flex-direction: column; } .workspace-backdrop { padding: 0; } .lead-workspace { width: 100%; height: 100%; max-height: none; border: 0; border-radius: 0; } .workspace-columns { grid-template-columns: 1fr; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px,1540px); padding-top: 8px; } .topbar { top: 6px; align-items: flex-start; border-radius: 20px; } .brand img { height: 34px; } .brand h1 { font-size: 1.1rem; } .actions { flex-direction: column; } .button { padding: 8px 10px; } .metric { min-height: 74px; padding: 12px; } .cards-track { grid-auto-columns: clamp(170px,72vw,216px); } .row-head { align-items: flex-start; flex-direction: column; padding-inline: 14px; } .agent-metrics { justify-content: flex-start; } .workspace-head { padding: 16px; } .workspace-body { padding: 14px; } .detail-grid, .contact-grid { grid-template-columns: 1fr; } }
+    @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
-<body class="antialiased selection:bg-cyan-500 selection:text-white">
-  <nav class="fixed z-50 w-full border-b border-white/10 bg-slate-950/90 backdrop-blur-md">
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-      <div class="flex min-h-20 items-center justify-between gap-4">
-        <div class="flex items-center gap-4">
-          <img src="assets/engagepriority-header-logo.png" alt="EngagePriority" class="h-10 w-auto" />
-          <span class="hidden rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-100 sm:inline-flex">Control Tower</span>
-        </div>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <img src="assets/engagepriority-header-logo.png" alt="EngagePriority" />
+        <div><p class="eyebrow">Control Tower</p><h1>Active lead command view</h1></div>
+      </div>
+      <div class="actions">
+        <button id="refreshButton" class="button primary" type="button">Refresh</button>
+        <button id="logoutButton" class="button" type="button">Logout</button>
+      </div>
+    </header>
 
-        <div class="flex items-center gap-2">
-          <button id="refreshButton" type="button" class="btn-primary rounded-lg px-4 py-2.5 text-sm font-bold text-white">
-            Refresh
-          </button>
-          <button id="logoutButton" type="button" class="rounded-lg border border-white/15 px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:border-cyan-300/50 hover:bg-white/5">
-            Logout
-          </button>
+    <section id="sessionLoadingState" class="state" aria-live="polite">
+      <h2>Loading Control Tower...</h2><p>Verifying your session.</p>
+    </section>
+    <section id="accessErrorState" class="state hidden">
+      <h2>Please sign in to access the Control Tower.</h2><p>Your session is missing, expired, or no longer valid.</p>
+      <p style="margin-top:16px"><a class="button primary" href="/login">Go to Login</a></p>
+    </section>
+
+    <div id="appShell" class="hidden">
+      <section id="dataLoadingState" class="state" aria-live="polite"><h2>Loading active work...</h2><p>Fetching the latest read-only operational state.</p></section>
+      <section id="dataErrorState" class="state hidden"><h2>Control Tower temporarily unavailable</h2><p>The dashboard data could not be loaded.</p><p style="margin-top:16px"><button id="retryButton" class="button" type="button">Try Again</button></p></section>
+
+      <div id="dashboardContent" class="hidden">
+        <div class="statusbar">
+          <div><h2>Current operational state</h2><p id="visibleCountText">0 active leads</p></div>
+          <p id="lastUpdatedText">Last updated: -</p>
         </div>
+        <section id="summaryStrip" class="summary-strip" aria-label="Operational summary"></section>
+        <section class="viewbar" aria-label="Operational view controls">
+          <div class="view-tabs">
+            <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
+            <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
+            <button class="view-tab" type="button" data-view="side-by-side" aria-pressed="false">Side-by-Side View</button>
+          </div>
+          <div class="view-note">Current active work only.</div>
+        </section>
+        <div class="view-heading">
+          <div><p id="viewEyebrow" class="eyebrow">Lifecycle View</p><h2 id="viewTitle">Active lead lifecycle</h2><p id="viewDescription">Oldest leads appear first within each stage.</p></div>
+          <p id="serviceWindowText">Service window: -</p>
+        </div>
+        <section id="operationalRows" class="stage-stack" aria-label="Active lifecycle rows"></section>
       </div>
     </div>
-  </nav>
-
-  <main class="page-bg min-h-screen px-4 pb-16 pt-28 sm:px-6 lg:px-8">
-    <section class="mx-auto max-w-7xl">
-      <div id="sessionLoadingState" class="surface rounded-3xl p-8 text-center">
-        <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-cyan-700">
-          CONTROL TOWER
-        </p>
-        <h1 class="mb-3 text-3xl font-bold">
-          Loading Control Tower...
-        </h1>
-        <p class="text-slate-500">
-          Verifying your session.
-        </p>
-      </div>
-
-      <div id="accessErrorState" class="hidden surface rounded-3xl border-red-200 p-8 text-center">
-        <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-red-600">
-          ACCESS REQUIRED
-        </p>
-        <h1 class="mb-3 text-3xl font-bold">
-          Please sign in to access the Control Tower.
-        </h1>
-        <p class="mb-6 text-slate-500">
-          Your session is missing, expired, or no longer valid.
-        </p>
-        <a href="/login" class="btn-primary inline-block rounded-xl px-6 py-3 font-bold text-white">
-          Go to Login
-        </a>
-      </div>
-
-      <div id="appShell" class="hidden">
-        <div class="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p class="mb-3 text-sm font-semibold uppercase tracking-[0.25em] text-cyan-200">
-              CONTROL TOWER
-            </p>
-            <h1 class="text-4xl font-bold tracking-tight text-white md:text-5xl">
-              Lead Response Dashboard
-            </h1>
-            <p class="mt-4 max-w-2xl text-slate-300">
-              Read-only visibility into active lead response status, reminders, reassignment, escalation, and recent outcomes.
-            </p>
-          </div>
-
-          <div class="flex flex-col items-start gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 sm:items-end">
-            <p class="text-xs uppercase tracking-[0.18em] text-slate-400">Status</p>
-            <p id="lastUpdatedText" class="text-sm text-slate-200">
-              Last updated: -
-            </p>
-          </div>
-        </div>
-
-        <div id="dataLoadingState" class="surface rounded-3xl p-8 text-center">
-          <h2 class="mb-3 text-2xl font-bold">
-            Loading dashboard...
-          </h2>
-          <p class="text-slate-500">
-            Fetching the latest read-only lead response data.
-          </p>
-        </div>
-
-        <div id="dataErrorState" class="hidden surface rounded-3xl border-red-200 p-8 text-center">
-          <h2 class="mb-3 text-2xl font-bold">
-            Control Tower temporarily unavailable
-          </h2>
-          <p class="mb-6 text-slate-500">
-            The dashboard data could not be loaded. Please try refreshing.
-          </p>
-          <button id="retryButton" type="button" class="btn-secondary rounded-xl px-5 py-3 text-sm font-semibold text-slate-700">
-            Try Again
-          </button>
-        </div>
-
-        <div id="dashboardContent" class="hidden">
-          <div id="controlContextBar" class="control-context-sticky surface mb-5 rounded-3xl p-4 sm:p-5">
-            <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div>
-                <p class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">View:</p>
-                <div id="timeFilterControls" class="flex flex-wrap gap-2">
-                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="today">Today</button>
-                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="last_7_days">Last 7 Days</button>
-                  <button type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700" data-time-filter="active_only">Active Only</button>
-                </div>
-              </div>
-
-              <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <p id="focusedStatusText" class="text-sm text-slate-500">Focused status: All</p>
-                <button id="clearStatusFilterButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
-                  Clear Status Filter
-                </button>
-              </div>
-            </div>
-
-            <div id="compactSummaryStrip" class="mt-4 flex gap-2 overflow-x-auto pb-1"></div>
-
-            <div id="compactColumnHeader" class="compact-column-header mt-3 hidden grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] gap-4 pt-3 text-[0.68rem] font-semibold uppercase tracking-[0.16em] lg:grid">
-              <span>Received</span>
-              <span>Lead</span>
-              <span>Source</span>
-              <span>Assigned Agent</span>
-              <span>Status</span>
-              <span>Next Action</span>
-              <span>Risk</span>
-            </div>
-          </div>
-
-          <div id="summaryCards" class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5"></div>
-
-          <div class="surface overflow-hidden rounded-3xl">
-            <div class="flex flex-col gap-2 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 class="text-2xl font-bold">Lead Response Queue</h2>
-                <p class="text-sm text-slate-500">
-                  Showing up to 20 records from the current read-only view.
-                </p>
-              </div>
-              <p id="visibleCountText" class="text-sm text-slate-400"></p>
-            </div>
-
-            <div class="hidden grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 lg:grid">
-              <span>Received</span>
-              <span>Lead</span>
-              <span>Source</span>
-              <span>Assigned Agent</span>
-              <span>Status</span>
-              <span>Next Action</span>
-              <span>Risk</span>
-            </div>
-
-            <div id="emptyState" class="hidden p-8 text-center">
-              <h3 class="mb-2 text-xl font-bold">No leads to show</h3>
-              <p class="text-slate-500">
-                No active leads or leads closed today.
-              </p>
-            </div>
-
-            <div id="leadList" class="divide-y divide-slate-200"></div>
-          </div>
-        </div>
-      </div>
-    </section>
   </main>
 
-  <div id="detailDrawerOverlay" class="hidden fixed inset-0 z-[60] drawer-backdrop">
-    <div class="absolute inset-y-0 right-0 flex w-full justify-end">
-      <aside class="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
-        <div class="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-6 py-5 backdrop-blur">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-700">Lead Detail</p>
-              <h2 id="drawerLeadName" class="mt-2 text-2xl font-bold text-slate-950">-</h2>
-              <p id="drawerLeadMeta" class="mt-1 text-sm text-slate-500">-</p>
-            </div>
-
-            <button id="drawerCloseButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
-              Close
-            </button>
+  <div id="leadWorkspaceOverlay" class="workspace-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="workspaceLeadName" aria-hidden="true">
+    <article class="lead-workspace" aria-label="Focused lead workspace">
+      <header class="workspace-head">
+        <div><p class="eyebrow">Lead Workspace</p><h2 id="workspaceLeadName">-</h2><p id="workspaceLeadMeta" class="row-subtext">-</p></div>
+        <button id="workspaceCloseButton" class="button" type="button" aria-label="Close lead workspace">Close</button>
+      </header>
+      <div class="workspace-body">
+        <section class="detail-panel"><h3>Lead Summary</h3><div id="workspaceSummary" class="detail-grid"></div></section>
+        <div class="workspace-columns">
+          <div class="workspace-stack">
+            <section class="detail-panel"><h3>Current Status</h3><div id="workspaceCurrentStatus" class="detail-grid"></div></section>
+            <section class="detail-panel"><h3>Assigned Agent / Response Context</h3><div id="workspaceResponseContext" class="detail-grid"></div></section>
+            <section class="detail-panel"><h3>Lifecycle History</h3><div id="workspaceLifecycleEvents" class="timeline"></div></section>
           </div>
-        </div>
-
-        <div class="space-y-6 p-6">
-          <section class="card rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold text-slate-950">Lead Summary</h3>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current owner</p>
-                <p id="drawerAssignedAgent" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Status</p>
-                <p id="drawerStatus" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Risk</p>
-                <p id="drawerRisk" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Source</p>
-                <p id="drawerSource" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-            </div>
-          </section>
-
-          <section class="card rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold text-slate-950">Enforcement Status</h3>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Active gateway state</p>
-                <p id="drawerActiveGatewayState" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Reassignment state</p>
-                <p id="drawerReassignmentState" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Escalation state</p>
-                <p id="drawerEscalationState" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Final outcome</p>
-                <p id="drawerFinalOutcome" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-            </div>
-          </section>
-
-          <section id="adminResolutionSection" class="hidden card rounded-2xl p-5">
-            <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-700">Admin Escalation</p>
-                <h3 class="mt-1 text-lg font-bold text-slate-950">Resolve escalated lead</h3>
-                <p class="mt-2 text-sm text-slate-500">Contact details are hidden until explicitly revealed for resolution.</p>
-              </div>
-            </div>
-
-            <div id="adminResolutionExistingState" class="hidden rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600"></div>
-
-            <div id="adminResolutionControls">
-              <button id="showResolutionDetailsButton" type="button" class="btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700">
-                Show resolution details
-              </button>
-
-              <div id="resolutionDetailsPanel" class="hidden mt-5 space-y-5">
-                <div class="grid gap-4 sm:grid-cols-2">
-                  <div>
-                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Phone</p>
-                    <p id="drawerResolutionPhone" class="mt-1 font-semibold text-slate-900">-</p>
-                  </div>
-                  <div>
-                    <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Email</p>
-                    <p id="drawerResolutionEmail" class="mt-1 font-semibold text-slate-900">-</p>
-                  </div>
+          <section id="adminResolutionSection" class="detail-panel hidden">
+            <p class="eyebrow">Admin Escalation</p><h3>Administrator Resolution</h3>
+            <p id="adminResolutionExistingState" class="resolution-message hidden"></p>
+            <div id="adminResolutionControls" class="resolution-controls">
+              <p class="row-subtext">Contact details are hidden until explicitly revealed for resolution.</p>
+              <button id="showResolutionDetailsButton" class="button" type="button">Show resolution details</button>
+              <div id="resolutionDetailsPanel" class="resolution-controls hidden">
+                <div class="contact-grid">
+                  <div class="detail-item"><span>Phone</span><strong id="workspaceResolutionPhone">-</strong></div>
+                  <div class="detail-item"><span>Email</span><strong id="workspaceResolutionEmail">-</strong></div>
                 </div>
-
-                <div>
-                  <label for="adminResolutionOutcome" class="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Resolution outcome</label>
-                  <select id="adminResolutionOutcome" class="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 focus:border-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-100">
+                <label class="detail-item"><span>Resolution outcome</span>
+                  <select id="adminResolutionOutcome">
                     <option value="">Select outcome</option>
                     <option value="ADMIN_CONTACTED_APPOINTMENT_SET">Contacted — Appointment Set</option>
                     <option value="ADMIN_CONTACTED_NOT_INTERESTED">Contacted — Not Interested</option>
                     <option value="ADMIN_NO_ANSWER">No Answer — Admin Attempted</option>
                     <option value="ADMIN_NO_ACTION">No Action — Admin Closed</option>
                   </select>
-                </div>
-
-                <button id="submitAdminResolutionButton" type="button" class="btn-primary rounded-xl px-5 py-3 text-sm font-bold text-white">
-                  Resolve escalation
-                </button>
+                </label>
+                <button id="submitAdminResolutionButton" class="button primary" type="button">Resolve escalation</button>
               </div>
-
-              <p id="adminResolutionMessage" class="mt-4 text-sm text-slate-500"></p>
+              <p id="adminResolutionMessage" class="resolution-message" aria-live="polite"></p>
             </div>
-          </section>
-
-          <section class="card rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold text-slate-950">System Context</h3>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Current owner ID</p>
-                <p id="drawerCurrentAssignedAgentId" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Release-time owner ID</p>
-                <p id="drawerReleaseTimeAssignedAgentId" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Gateway stage</p>
-                <p id="drawerGatewayContext" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Last recorded agent action</p>
-                <p id="drawerSelectedAction" class="mt-1 font-semibold text-slate-900">-</p>
-              </div>
-            </div>
-          </section>
-
-          <section class="card rounded-2xl p-5">
-            <h3 class="mb-4 text-lg font-bold text-slate-950">Recent lifecycle events</h3>
-            <div id="drawerLifecycleEvents" class="space-y-3"></div>
           </section>
         </div>
-      </aside>
-    </div>
+      </div>
+    </article>
   </div>
 
+  <script src="control-tower-lifecycle-view.js"></script>
   <script>
-    const sessionLoadingState = document.getElementById("sessionLoadingState");
-    const accessErrorState = document.getElementById("accessErrorState");
-    const appShell = document.getElementById("appShell");
-    const logoutButton = document.getElementById("logoutButton");
-    const refreshButton = document.getElementById("refreshButton");
-    const retryButton = document.getElementById("retryButton");
-    const dataLoadingState = document.getElementById("dataLoadingState");
-    const dataErrorState = document.getElementById("dataErrorState");
-    const dashboardContent = document.getElementById("dashboardContent");
-    const summaryCards = document.getElementById("summaryCards");
-    const compactSummaryStrip = document.getElementById("compactSummaryStrip");
-    const leadList = document.getElementById("leadList");
-    const emptyState = document.getElementById("emptyState");
-    const lastUpdatedText = document.getElementById("lastUpdatedText");
-    const visibleCountText = document.getElementById("visibleCountText");
-    const detailDrawerOverlay = document.getElementById("detailDrawerOverlay");
-    const drawerCloseButton = document.getElementById("drawerCloseButton");
-    const timeFilterControls = document.getElementById("timeFilterControls");
-    const focusedStatusText = document.getElementById("focusedStatusText");
-    const clearStatusFilterButton = document.getElementById("clearStatusFilterButton");
-    const adminResolutionSection = document.getElementById("adminResolutionSection");
-    const adminResolutionExistingState = document.getElementById("adminResolutionExistingState");
-    const adminResolutionControls = document.getElementById("adminResolutionControls");
-    const showResolutionDetailsButton = document.getElementById("showResolutionDetailsButton");
-    const resolutionDetailsPanel = document.getElementById("resolutionDetailsPanel");
-    const adminResolutionOutcome = document.getElementById("adminResolutionOutcome");
-    const submitAdminResolutionButton = document.getElementById("submitAdminResolutionButton");
-    const adminResolutionMessage = document.getElementById("adminResolutionMessage");
+    const view = window.ControlTowerLifecycleView;
+    const elements = Object.fromEntries([
+      "sessionLoadingState", "accessErrorState", "appShell", "refreshButton", "logoutButton", "retryButton",
+      "dataLoadingState", "dataErrorState", "dashboardContent", "summaryStrip", "operationalRows", "lastUpdatedText",
+      "visibleCountText", "serviceWindowText", "viewEyebrow", "viewTitle", "viewDescription", "leadWorkspaceOverlay", "workspaceCloseButton", "workspaceLeadName",
+      "workspaceLeadMeta", "workspaceSummary", "workspaceCurrentStatus", "workspaceResponseContext", "workspaceLifecycleEvents", "adminResolutionSection", "adminResolutionExistingState",
+      "adminResolutionControls", "showResolutionDetailsButton", "resolutionDetailsPanel", "adminResolutionOutcome",
+      "submitAdminResolutionButton", "adminResolutionMessage", "workspaceResolutionPhone", "workspaceResolutionEmail"
+    ].map(id => [id, document.getElementById(id)]));
 
     let currentLeads = [];
-    let currentTimeFilter = "today";
-    let currentSummaryFilter = null;
-    let activeDrawerLead = null;
+    let currentAgents = [];
+    let currentServiceWindow = {};
+    let currentView = view.DEFAULT_VIEW;
+    let activeWorkspaceLead = null;
+    let workspaceOrigin = null;
     let resolutionDetailsLoaded = false;
-
-    const timeFilterLabels = {
-      today: "Today",
-      last_7_days: "Last 7 Days",
-      active_only: "Active Only"
-    };
-
-    const summaryConfig = [
-      { uiKey: "awaiting_agent_action", apiKey: "awaiting_agent_action", label: "Awaiting Agent Action", shortLabel: "Awaiting" },
-      { uiKey: "reminder_active", apiKey: "reminder_active", label: "Reminder Active", shortLabel: "Reminders" },
-      { uiKey: "reassignment_active", apiKey: "reassignment_active", label: "Reassignment Active", shortLabel: "Reassign" },
-      { uiKey: "escalated_to_admin", apiKey: "escalated_to_admin", label: "Escalated to Admin", shortLabel: "Escalated" },
-      { uiKey: "closed_outcome_recorded", apiKey: "closed", label: "Closed Today", shortLabel: "Closed" }
-    ];
-
-    function showAuthenticated() {
-      sessionLoadingState.classList.add("hidden");
-      accessErrorState.classList.add("hidden");
-      appShell.classList.remove("hidden");
-    }
-
-    function showUnauthenticated() {
-      sessionLoadingState.classList.add("hidden");
-      appShell.classList.add("hidden");
-      accessErrorState.classList.remove("hidden");
-    }
-
-    function setDataLoading(isLoading) {
-      refreshButton.disabled = isLoading;
-      refreshButton.textContent = isLoading ? "Refreshing..." : "Refresh";
-      dataErrorState.classList.add("hidden");
-
-      if (isLoading) {
-        dataLoadingState.classList.remove("hidden");
-      } else {
-        dataLoadingState.classList.add("hidden");
-      }
-    }
-
-    function showDataError() {
-      dataLoadingState.classList.add("hidden");
-      dashboardContent.classList.add("hidden");
-      dataErrorState.classList.remove("hidden");
-      refreshButton.disabled = false;
-      refreshButton.textContent = "Refresh";
-    }
-
-    function buildDashboardDataUrl() {
-      const params = new URLSearchParams();
-      params.set("time_filter", currentTimeFilter);
-
-      if (currentSummaryFilter) {
-        params.set("summary_filter", currentSummaryFilter);
-      }
-
-      return `/.netlify/functions/control-tower-data?${params.toString()}`;
-    }
-
-    function updateFilterUi() {
-      const timeButtons = timeFilterControls.querySelectorAll("[data-time-filter]");
-
-      timeButtons.forEach((button) => {
-        const isActive = button.dataset.timeFilter === currentTimeFilter;
-        button.classList.toggle("filter-button-active", isActive);
-        button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      });
-
-      const activeSummary = summaryConfig.find(item => item.apiKey === currentSummaryFilter);
-      focusedStatusText.textContent = activeSummary
-        ? `Focused status: ${activeSummary.label}`
-        : "Focused status: All";
-
-      clearStatusFilterButton.disabled = !currentSummaryFilter;
-
-      document.querySelectorAll("[data-summary-filter]").forEach((button) => {
-        const isActive = button.dataset.summaryFilter === currentSummaryFilter;
-        const isSummaryCard = button.classList.contains("summary-card");
-        const isCompactSummary = button.classList.contains("compact-summary-button");
-
-        button.classList.toggle("summary-card-active", isActive && isSummaryCard);
-        button.classList.toggle("compact-summary-active", isActive && isCompactSummary);
-        button.classList.toggle("filter-button-active", isActive && !isSummaryCard && !isCompactSummary);
-        button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      });
-    }
-
-    function selectSummaryFilter(apiKey) {
-      currentSummaryFilter = currentSummaryFilter === apiKey ? null : apiKey;
-      updateFilterUi();
-      loadDashboardData();
-    }
 
     async function checkSession() {
       try {
-        const response = await fetch("/.netlify/functions/control-tower-session", {
-          method: "GET",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-
-        let result = {};
-        try {
-          result = await response.json();
-        } catch (parseError) {
-          result = {};
-        }
-
+        const response = await fetch("/.netlify/functions/control-tower-session", { headers: { Accept: "application/json" } });
+        const result = await safeJson(response);
         if (!response.ok || result.ok !== true || result.authenticated !== true) {
           window.location.href = "/login";
           return;
         }
-
-        showAuthenticated();
+        elements.sessionLoadingState.classList.add("hidden");
+        elements.accessErrorState.classList.add("hidden");
+        elements.appShell.classList.remove("hidden");
         await loadDashboardData();
       } catch (error) {
-        showUnauthenticated();
+        elements.sessionLoadingState.classList.add("hidden");
+        elements.appShell.classList.add("hidden");
+        elements.accessErrorState.classList.remove("hidden");
       }
     }
 
     async function loadDashboardData() {
       setDataLoading(true);
-      closeLeadDrawer();
-
+      closeLeadWorkspace();
       try {
-        const response = await fetch(buildDashboardDataUrl(), {
-          method: "GET",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-
-        let result = {};
-        try {
-          result = await response.json();
-        } catch (parseError) {
-          result = {};
-        }
-
-        if (!response.ok || result.ok !== true) {
-          showDataError();
+        const response = await fetch("/.netlify/functions/control-tower-data", { headers: { Accept: "application/json" } });
+        const result = await safeJson(response);
+        if (response.status === 401) {
+          window.location.href = "/login";
           return;
         }
-
+        if (!response.ok || result.ok !== true) throw new Error("Control Tower data unavailable");
         renderDashboard(result);
       } catch (error) {
-        showDataError();
+        elements.dashboardContent.classList.add("hidden");
+        elements.dataErrorState.classList.remove("hidden");
       } finally {
         setDataLoading(false);
       }
     }
 
+    function setDataLoading(loading) {
+      elements.refreshButton.disabled = loading;
+      elements.refreshButton.textContent = loading ? "Refreshing..." : "Refresh";
+      elements.dataLoadingState.classList.toggle("hidden", !loading);
+      if (loading) elements.dataErrorState.classList.add("hidden");
+    }
+
     function renderDashboard(data) {
       currentLeads = Array.isArray(data.leads) ? data.leads : [];
-
+      currentAgents = Array.isArray(data.agents) ? data.agents : [];
+      currentServiceWindow = data.service_window || {};
       renderSummary(data.summary || {});
-      renderLeads(currentLeads);
-      renderMeta(data.meta || {});
-
-      dashboardContent.classList.remove("hidden");
-      dataErrorState.classList.add("hidden");
+      renderOperationalView();
+      elements.visibleCountText.textContent = `${numberOrZero(data.meta?.active_record_count)} active lead${numberOrZero(data.meta?.active_record_count) === 1 ? "" : "s"}`;
+      elements.lastUpdatedText.textContent = `Last updated: ${formatDateTime(data.meta?.last_updated_ts_utc) || "-"}`;
+      elements.serviceWindowText.textContent = `Service window: ${data.service_window?.is_open === true ? "Open" : "Closed"}`;
+      elements.dashboardContent.classList.remove("hidden");
+      elements.dataErrorState.classList.add("hidden");
     }
 
     function renderSummary(summary) {
-      summaryCards.innerHTML = "";
-      compactSummaryStrip.innerHTML = "";
-
-      summaryConfig.forEach(({ uiKey, apiKey, label, shortLabel }) => {
-        const value = safeNumber(summary[uiKey]);
-        const isActive = currentSummaryFilter === apiKey;
-
-        const card = document.createElement("button");
-        card.type = "button";
-        card.className = [
-          "summary-card card rounded-2xl p-5 text-left transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-lg",
-          isActive ? "summary-card-active" : ""
-        ].filter(Boolean).join(" ");
-        card.dataset.summaryFilter = apiKey;
-        card.setAttribute("aria-pressed", isActive ? "true" : "false");
-
-        const labelElement = document.createElement("p");
-        labelElement.className = "summary-card-label mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500";
+      elements.summaryStrip.replaceChildren(...view.summaryItems(summary).map(([label, value]) => {
+        const metric = document.createElement("article");
+        metric.className = "metric";
+        const labelElement = document.createElement("span");
         labelElement.textContent = label;
-
-        const valueElement = document.createElement("p");
-        valueElement.className = "summary-card-value text-3xl font-bold text-slate-950";
+        const valueElement = document.createElement("strong");
         valueElement.textContent = String(value);
+        metric.append(labelElement, valueElement);
+        return metric;
+      }));
+    }
 
-        card.appendChild(labelElement);
-        card.appendChild(valueElement);
-        card.addEventListener("click", () => selectSummaryFilter(apiKey));
+    function renderLifecycleRows(leads, serviceWindow) {
+      const rows = view.buildLifecycleRows(leads, serviceWindow);
+      elements.operationalRows.className = "stage-stack";
+      elements.operationalRows.setAttribute("aria-label", "Active lifecycle rows");
+      renderLifecycleModel(elements.operationalRows, rows);
+      wireCarousels();
+    }
 
-        const compactButton = document.createElement("button");
-        compactButton.type = "button";
-        compactButton.className = [
-          "compact-summary-button btn-secondary rounded-full px-3 py-2 text-xs font-semibold text-slate-700",
-          isActive ? "compact-summary-active" : ""
-        ].filter(Boolean).join(" ");
-        compactButton.dataset.summaryFilter = apiKey;
-        compactButton.setAttribute("aria-pressed", isActive ? "true" : "false");
-        compactButton.textContent = `${shortLabel}: ${value}`;
-        compactButton.addEventListener("click", () => selectSummaryFilter(apiKey));
+    function renderLifecycleModel(container, rows) {
+      container.replaceChildren(...rows.map(renderLifecycleRow));
+    }
 
-        summaryCards.appendChild(card);
-        compactSummaryStrip.appendChild(compactButton);
+    function renderOperationalView() {
+      document.querySelectorAll("[data-view]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.view === currentView));
       });
-
-      updateFilterUi();
-    }
-
-    function renderMeta(meta) {
-      visibleCountText.textContent = `${safeNumber(meta.visible_record_count)} visible records`;
-
-      const updated = formatDateTime(meta.last_updated_ts_utc);
-      lastUpdatedText.textContent = updated ? `Last updated: ${updated}` : "Last updated: -";
-    }
-
-    function renderLeads(leads) {
-      leadList.innerHTML = "";
-
-      if (!leads.length) {
-        emptyState.classList.remove("hidden");
+      if (currentView === "agent") {
+        elements.viewEyebrow.textContent = "Agent View";
+        elements.viewTitle.textContent = "Active work by owner";
+        elements.viewDescription.textContent = "Oldest leads appear first within each active owner row.";
+        renderAgentRows(currentLeads, currentAgents, currentServiceWindow);
         return;
       }
-
-      emptyState.classList.add("hidden");
-
-      leads.forEach((lead, index) => {
-        leadList.appendChild(renderLeadRecord(lead, index));
-      });
-    }
-
-    function renderLeadRecord(lead, index) {
-      const wrapper = document.createElement("article");
-      wrapper.className = "p-5 transition hover:bg-slate-50";
-
-      const badges = Array.isArray(lead.status?.badges) ? lead.status.badges : [];
-      const riskLabel = textOrDash(lead.risk?.label);
-      const sourceLabel = formatSourceLabel(lead.source);
-      const dueText = textOrDash(lead.next_action?.due_in_label || lead.next_action?.due_display);
-      const riskClass = riskClassFor(riskLabel);
-
-      const grid = document.createElement("div");
-      grid.className = "grid gap-4 lg:grid-cols-[0.85fr_1.35fr_1fr_1fr_1fr_1fr_0.8fr] lg:items-center";
-
-      const receivedColumn = renderInfoColumn("Received", textOrDash(lead.received_display));
-
-      const leadColumn = document.createElement("div");
-      const leadName = document.createElement("h3");
-      leadName.className = "text-lg font-bold text-slate-950";
-      leadName.textContent = textOrDash(lead.lead_name);
-
-      const detailsButton = document.createElement("button");
-      detailsButton.type = "button";
-      detailsButton.className = "mt-3 btn-secondary rounded-xl px-4 py-2 text-sm font-semibold text-slate-700";
-      detailsButton.textContent = "View details";
-      detailsButton.addEventListener("click", () => openLeadDrawer(index));
-
-      leadColumn.appendChild(leadName);
-      leadColumn.appendChild(detailsButton);
-
-      const sourceColumn = renderInfoColumn("Source", sourceLabel);
-      const agentColumn = renderInfoColumn("Assigned Agent", textOrDash(lead.assigned_agent?.agent_name));
-
-      const statusColumn = document.createElement("div");
-      const statusLabel = document.createElement("p");
-      statusLabel.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
-      statusLabel.textContent = "Status";
-      const statusBadge = document.createElement("span");
-      statusBadge.className = "badge";
-      statusBadge.textContent = textOrDash(lead.status?.primary);
-      statusColumn.appendChild(statusLabel);
-      statusColumn.appendChild(statusBadge);
-
-      const actionColumn = renderInfoColumn("Next Action", textOrDash(lead.next_action?.label), dueText);
-
-      const riskColumn = document.createElement("div");
-      const riskLabelElement = document.createElement("p");
-      riskLabelElement.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
-      riskLabelElement.textContent = "Risk";
-
-      const riskBadge = document.createElement("span");
-      riskBadge.className = `badge ${riskClass}`;
-      riskBadge.textContent = riskLabel;
-
-      riskColumn.appendChild(riskLabelElement);
-      riskColumn.appendChild(riskBadge);
-
-      grid.appendChild(receivedColumn);
-      grid.appendChild(leadColumn);
-      grid.appendChild(sourceColumn);
-      grid.appendChild(agentColumn);
-      grid.appendChild(statusColumn);
-      grid.appendChild(actionColumn);
-      grid.appendChild(riskColumn);
-
-      const badgeContainer = document.createElement("div");
-      badgeContainer.className = "mt-4 flex flex-wrap gap-2";
-      badges.forEach((badgeText) => {
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = textOrDash(badgeText);
-        badgeContainer.appendChild(badge);
-      });
-
-      const countContainer = document.createElement("div");
-      countContainer.className = "mt-4 flex flex-wrap gap-2 text-xs text-slate-500";
-      countContainer.appendChild(renderMiniCount("Reminders", lead.counts?.reminder_count));
-      countContainer.appendChild(renderMiniCount("Reassignments", lead.counts?.reassignment_count));
-      countContainer.appendChild(renderMiniCount("No Answer", lead.counts?.no_answer_attempt_count));
-
-      wrapper.appendChild(grid);
-      wrapper.appendChild(badgeContainer);
-      wrapper.appendChild(countContainer);
-
-      return wrapper;
-    }
-
-    function renderInfoColumn(label, value, detail) {
-      const column = document.createElement("div");
-
-      const labelElement = document.createElement("p");
-      labelElement.className = "mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 lg:hidden";
-      labelElement.textContent = label;
-
-      const valueElement = document.createElement("p");
-      valueElement.className = "font-semibold text-slate-900";
-      valueElement.textContent = value;
-
-      column.appendChild(labelElement);
-      column.appendChild(valueElement);
-
-      if (detail) {
-        const detailElement = document.createElement("p");
-        detailElement.className = "text-sm text-slate-500";
-        detailElement.textContent = detail;
-        column.appendChild(detailElement);
-      }
-
-      return column;
-    }
-
-    function openLeadDrawer(index) {
-      const lead = currentLeads[index];
-
-      if (!lead) {
+      if (currentView === "side-by-side") {
+        elements.viewEyebrow.textContent = "Side-by-Side View";
+        elements.viewTitle.textContent = "Lifecycle and owner perspectives";
+        elements.viewDescription.textContent = "The same current active work is shown through both operational perspectives.";
+        renderSideBySide(currentLeads, currentAgents, currentServiceWindow);
         return;
       }
+      elements.viewEyebrow.textContent = "Lifecycle View";
+      elements.viewTitle.textContent = "Active lead lifecycle";
+      elements.viewDescription.textContent = "Oldest leads appear first within each stage.";
+      renderLifecycleRows(currentLeads, currentServiceWindow);
+    }
 
-      const drawer = lead.drawer || {};
-      const lifecycleEvents = Array.isArray(drawer.recent_lifecycle_events)
-        ? drawer.recent_lifecycle_events
-        : [];
+    function renderAgentRows(leads, agents, serviceWindow) {
+      const model = view.buildAgentView(leads, agents, serviceWindow);
+      elements.operationalRows.className = "stage-stack agent-stack";
+      elements.operationalRows.setAttribute("aria-label", "Active agent rows");
+      renderAgentModel(elements.operationalRows, model);
+      wireCarousels();
+    }
 
-      setText("drawerLeadName", textOrDash(lead.lead_name));
-      setText("drawerLeadMeta", `${textOrDash(lead.received_display)} / ${formatSourceLabel(lead.source)}`);
-      setText("drawerSource", formatSourceLabel(lead.source));
-      setText("drawerAssignedAgent", textOrDash(lead.assigned_agent?.agent_name));
-      setText("drawerStatus", textOrDash(lead.status?.primary));
-      setText("drawerRisk", textOrDash(lead.risk?.label));
-      setText("drawerActiveGatewayState", textOrDash(drawer.active_gateway_state));
-      setText("drawerReassignmentState", textOrDash(drawer.reassignment_state));
-      setText("drawerCurrentAssignedAgentId", textOrDash(drawer.current_assigned_agent_id));
-      setText("drawerReleaseTimeAssignedAgentId", textOrDash(drawer.release_time_assigned_agent_id));
-      setText("drawerGatewayContext", textOrDash(drawer.gateway_context));
-      setText("drawerSelectedAction", textOrDash(drawer.selected_action));
-      setText("drawerEscalationState", textOrDash(drawer.escalation_state));
-      setText("drawerFinalOutcome", textOrDash(drawer.final_outcome));
-      renderLifecycleEvents(lifecycleEvents);
+    function renderAgentModel(container, model) {
+      const renderedRows = model.rows.map(renderAgentRow);
+      const content = model.rows[0]?.type === "ADMINISTRATOR" ? [renderedRows.shift()] : [];
+      if (model.waiting_indicator) {
+        const indicator = document.createElement("div");
+        indicator.className = "minimal-indicator";
+        indicator.textContent = model.waiting_indicator;
+        content.push(indicator);
+      }
+      content.push(...renderedRows);
+      if (!content.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "No active queues need attention.";
+        content.push(empty);
+      }
+      container.replaceChildren(...content);
+    }
+
+    function renderSideBySide(leads, agents, serviceWindow) {
+      const model = view.buildSideBySideView(leads, agents, serviceWindow);
+      const lifecyclePane = perspectivePane("sideLifecyclePane", "Lifecycle perspective", "Active leads by lifecycle stage.");
+      const agentPane = perspectivePane("sideAgentPane", "Agent perspective", "Active leads by operational owner.");
+      const lifecycleStack = document.createElement("div");
+      lifecycleStack.className = "stage-stack";
+      lifecycleStack.setAttribute("aria-label", "Side-by-Side lifecycle rows");
+      renderLifecycleModel(lifecycleStack, model.lifecycle_rows);
+      const agentStack = document.createElement("div");
+      agentStack.className = "stage-stack agent-stack";
+      agentStack.setAttribute("aria-label", "Side-by-Side agent rows");
+      renderAgentModel(agentStack, model.agent_view);
+      lifecyclePane.append(lifecycleStack);
+      agentPane.append(agentStack);
+      elements.operationalRows.className = "side-by-side";
+      elements.operationalRows.setAttribute("aria-label", "Lifecycle and agent perspectives");
+      elements.operationalRows.replaceChildren(lifecyclePane, agentPane);
+      wireCarousels();
+    }
+
+    function perspectivePane(id, titleText, descriptionText) {
+      const pane = document.createElement("section");
+      pane.id = id;
+      pane.className = "perspective-pane";
+      pane.setAttribute("aria-labelledby", `${id}Title`);
+      const heading = document.createElement("header");
+      heading.className = "pane-heading";
+      const title = document.createElement("h2");
+      title.id = `${id}Title`;
+      title.textContent = titleText;
+      const description = document.createElement("p");
+      description.textContent = descriptionText;
+      heading.append(title, description);
+      pane.append(heading);
+      return pane;
+    }
+
+    function renderAgentRow(row) {
+      const panel = document.createElement("section");
+      panel.className = `row-panel${row.type === "ADMINISTRATOR" ? " escalated" : ""}${row.type === "WAITING_QUEUE" ? " business-hours" : ""}`;
+      panel.dataset.agentRow = row.key;
+
+      const head = document.createElement("header");
+      head.className = "row-head";
+      head.append(renderAgentHeadline(row));
+      const metrics = renderAgentMetrics(row);
+      if (metrics) head.append(metrics);
+      panel.append(head);
+
+      const carousel = document.createElement("div");
+      carousel.className = "carousel";
+      carousel.dataset.carousel = "";
+      const left = arrowButton("left", "‹");
+      const track = document.createElement("div");
+      track.className = "cards-track";
+      track.append(...row.items.map(lead => renderLeadCard(lead, row, "agent")));
+      const right = arrowButton("right", "›");
+      carousel.append(left, track, right);
+      panel.append(carousel);
+      return panel;
+    }
+
+    function renderAgentHeadline(row) {
+      const headline = document.createElement("div");
+      headline.className = "agent-headline";
+      if (row.type === "AGENT" || row.type === "ADMINISTRATOR") {
+        const avatar = document.createElement("div");
+        avatar.className = `avatar${row.type === "ADMINISTRATOR" ? " admin" : ""}`;
+        if (row.type === "AGENT" && row.photo_url) {
+          const image = document.createElement("img");
+          image.src = row.photo_url;
+          image.alt = `${row.title} profile`;
+          avatar.append(image);
+        } else {
+          avatar.textContent = row.type === "ADMINISTRATOR" ? "AD" : row.initials;
+          avatar.setAttribute("aria-label", `${row.title} avatar fallback`);
+        }
+        headline.append(avatar);
+      } else {
+        const icon = document.createElement("span");
+        icon.className = "queue-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "◷";
+        headline.append(icon);
+      }
+      const text = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = row.title;
+      const subtitle = document.createElement("p");
+      subtitle.className = "row-subtext";
+      subtitle.textContent = `${row.items.length} active lead${row.items.length === 1 ? "" : "s"}${row.description ? `. ${row.description}.` : ""}`;
+      text.append(title, subtitle);
+      headline.append(text);
+      return headline;
+    }
+
+    function renderAgentMetrics(row) {
+      const metrics = document.createElement("div");
+      metrics.className = "agent-metrics";
+      if (row.type === "AGENT") {
+        metrics.append(
+          agentMetric("Avg. Response Time", row.avg_response_time),
+          agentMetric("Reassignments", row.explicit_reassignments_today)
+        );
+      } else if (row.type === "ADMINISTRATOR") {
+        metrics.append(agentMetric(row.metric.label, row.metric.value));
+      } else {
+        return null;
+      }
+      return metrics;
+    }
+
+    function agentMetric(label, value) {
+      const metric = document.createElement("span");
+      metric.className = "agent-metric";
+      metric.textContent = `${label}: ${value}`;
+      return metric;
+    }
+
+    function renderLifecycleRow(row) {
+      const panel = document.createElement("section");
+      panel.className = `row-panel${row.key === "ESCALATED_TO_ADMIN" ? " escalated" : ""}${row.key === "WAITING_FOR_BUSINESS_HOURS" ? " business-hours" : ""}`;
+      panel.dataset.lifecycleRow = row.key;
+
+      const head = document.createElement("header");
+      head.className = "row-head";
+      const titleWrap = document.createElement("div");
+      titleWrap.className = "row-title";
+      const dot = document.createElement("span");
+      dot.className = "stage-dot";
+      dot.style.background = row.color;
+      dot.setAttribute("aria-hidden", "true");
+      const text = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = row.title;
+      const subtitle = document.createElement("p");
+      subtitle.className = "row-subtext";
+      subtitle.textContent = `${row.items.length} active lead${row.items.length === 1 ? "" : "s"}. ${row.description}.`;
+      text.append(title, subtitle);
+      titleWrap.append(dot, text);
+      head.append(titleWrap);
+      panel.append(head);
+
+      if (!row.items.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = row.empty_text;
+        panel.append(empty);
+        return panel;
+      }
+
+      const carousel = document.createElement("div");
+      carousel.className = "carousel";
+      carousel.dataset.carousel = "";
+      const left = arrowButton("left", "‹");
+      const track = document.createElement("div");
+      track.className = "cards-track";
+      track.append(...row.items.map(lead => renderLeadCard(lead, row)));
+      const right = arrowButton("right", "›");
+      carousel.append(left, track, right);
+      panel.append(carousel);
+      return panel;
+    }
+
+    function renderLeadCard(lead, row, mode = "lifecycle") {
+      const presentation = view.cardPresentation(lead, mode);
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = view.cardClassFor(lead.lifecycle?.key || row.key);
+      card.dataset.leadId = lead.lead_id;
+      const lifecycleLabel = textOrFallback(presentation.lifecycle_label, row.label || "active lead");
+      card.setAttribute("aria-label", `Open ${presentation.lead_name} detail, ${lifecycleLabel}`);
+
+      const body = document.createElement("div");
+      if (mode === "agent") {
+        const status = document.createElement("span");
+        status.className = "status-line";
+        status.textContent = lifecycleLabel;
+        body.append(status);
+      }
+      const name = document.createElement("div");
+      name.className = "lead-name";
+      name.textContent = presentation.lead_name;
+      const meta = document.createElement("div");
+      meta.className = "lead-meta";
+      appendMeta(meta, presentation.phone_display);
+      appendMeta(meta, presentation.received_display || formatDateTime(lead.received_ts_utc));
+      if (row.key !== "WAITING_FOR_BUSINESS_HOURS") appendMeta(meta, presentation.assigned_agent_name);
+      body.append(name, meta);
+
+      const context = document.createElement("div");
+      context.className = "lead-context";
+      context.textContent = responseContext(lead, lead.lifecycle?.key || row.key);
+      card.append(body, context);
+      card.addEventListener("click", () => openLeadWorkspace(lead.lead_id, card));
+      return card;
+    }
+
+    function responseContext(lead, rowKey) {
+      if (rowKey === "WAITING_FOR_BUSINESS_HOURS") {
+        return lead.next_action?.due_in_label || lead.next_action?.due_display || "Held until service opens";
+      }
+      return [lead.next_action?.label, lead.next_action?.due_in_label || lead.next_action?.due_display].filter(Boolean).join(" · ") || "Response context unavailable";
+    }
+
+    function arrowButton(direction, glyph) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `rail-arrow ${direction}`;
+      button.dataset.scroll = direction;
+      button.setAttribute("aria-label", `Scroll ${direction}`);
+      button.textContent = glyph;
+      return button;
+    }
+
+    function wireCarousels() {
+      document.querySelectorAll("[data-carousel]").forEach(carousel => {
+        const track = carousel.querySelector(".cards-track");
+        const left = carousel.querySelector('[data-scroll="left"]');
+        const right = carousel.querySelector('[data-scroll="right"]');
+        const update = () => {
+          const state = view.carouselState(track);
+          left.classList.toggle("visible", state.show_left);
+          right.classList.toggle("visible", state.show_right);
+        };
+        left.addEventListener("click", () => track.scrollBy({ left: -Math.round(track.clientWidth * .82), behavior: "smooth" }));
+        right.addEventListener("click", () => track.scrollBy({ left: Math.round(track.clientWidth * .82), behavior: "smooth" }));
+        track.addEventListener("scroll", update, { passive: true });
+        if ("ResizeObserver" in window) {
+          new ResizeObserver(update).observe(track);
+        } else {
+          window.addEventListener("resize", update);
+        }
+        requestAnimationFrame(update);
+      });
+    }
+
+    function openLeadWorkspace(leadId, origin) {
+      const lead = currentLeads.find(item => item.lead_id === leadId);
+      if (!lead) return;
+      activeWorkspaceLead = lead;
+      workspaceOrigin = origin || document.activeElement;
+      elements.workspaceLeadName.textContent = textOrFallback(lead.lead_name, "Lead");
+      elements.workspaceLeadMeta.textContent = [lead.phone_display, lead.received_display, lead.lifecycle?.label].filter(Boolean).join(" · ") || "-";
+      elements.workspaceSummary.replaceChildren(
+        detailItem("Masked phone", lead.phone_display),
+        detailItem("Received", lead.received_display || formatDateTime(lead.received_ts_utc)),
+        detailItem("Source", sourceLabel(lead.source))
+      );
+      elements.workspaceCurrentStatus.replaceChildren(
+        detailItem("Lifecycle stage", lead.lifecycle?.label),
+        detailItem("Operational status", lead.status?.primary),
+        detailItem("Risk", lead.risk?.label),
+        detailItem("Active gateway", lead.drawer?.active_gateway_state),
+        detailItem("Escalation state", lead.drawer?.escalation_state),
+        detailItem("Final outcome", lead.drawer?.final_outcome)
+      );
+      elements.workspaceResponseContext.replaceChildren(
+        detailItem("Assigned agent", lead.assigned_agent?.agent_id ? lead.assigned_agent.agent_name : "Not assigned"),
+        detailItem("Next action", responseContext(lead, lead.lifecycle?.key)),
+        detailItem("Reassignments", lead.counts?.reassignment_count),
+        detailItem("Release-time agent", lead.drawer?.release_time_assigned_agent_id),
+        detailItem("Last agent action", lead.drawer?.selected_action),
+        detailItem("Gateway stage", lead.drawer?.gateway_context)
+      );
+      renderLifecycleEvents(lead.drawer?.recent_lifecycle_events || []);
       resetAdminResolutionPanel(lead);
-
-      detailDrawerOverlay.classList.remove("hidden");
+      elements.leadWorkspaceOverlay.classList.remove("hidden");
+      elements.leadWorkspaceOverlay.setAttribute("aria-hidden", "false");
+      document.querySelector("main").inert = true;
       document.body.style.overflow = "hidden";
+      elements.workspaceCloseButton.focus();
     }
 
-    function closeLeadDrawer() {
-      detailDrawerOverlay.classList.add("hidden");
+    function closeLeadWorkspace() {
+      if (elements.leadWorkspaceOverlay.classList.contains("hidden")) return;
+      const returnTarget = workspaceOrigin;
+      elements.leadWorkspaceOverlay.classList.add("hidden");
+      elements.leadWorkspaceOverlay.setAttribute("aria-hidden", "true");
+      document.querySelector("main").inert = false;
       document.body.style.overflow = "";
-      activeDrawerLead = null;
+      activeWorkspaceLead = null;
+      workspaceOrigin = null;
       resolutionDetailsLoaded = false;
+      if (returnTarget?.isConnected && typeof returnTarget.focus === "function") returnTarget.focus();
+    }
+
+    function trapWorkspaceFocus(event) {
+      if (event.key !== "Tab" || elements.leadWorkspaceOverlay.classList.contains("hidden")) return;
+      const focusable = [...elements.leadWorkspaceOverlay.querySelectorAll("button:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")]
+        .filter(item => !item.closest(".hidden"));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     function resetAdminResolutionPanel(lead) {
       const drawer = lead?.drawer || {};
-      activeDrawerLead = lead || null;
       resolutionDetailsLoaded = false;
-
-      adminResolutionSection.classList.add("hidden");
-      adminResolutionExistingState.classList.add("hidden");
-      adminResolutionExistingState.textContent = "";
-      adminResolutionControls.classList.remove("hidden");
-      resolutionDetailsPanel.classList.add("hidden");
-      showResolutionDetailsButton.classList.remove("hidden");
-      showResolutionDetailsButton.disabled = false;
-      showResolutionDetailsButton.textContent = "Show resolution details";
-      submitAdminResolutionButton.disabled = false;
-      submitAdminResolutionButton.textContent = "Resolve escalation";
-      adminResolutionOutcome.value = "";
-      adminResolutionMessage.textContent = "";
-      setText("drawerResolutionPhone", "-");
-      setText("drawerResolutionEmail", "-");
-
+      elements.adminResolutionSection.classList.add("hidden");
+      elements.adminResolutionExistingState.classList.add("hidden");
+      elements.adminResolutionControls.classList.remove("hidden");
+      elements.resolutionDetailsPanel.classList.add("hidden");
+      elements.showResolutionDetailsButton.classList.remove("hidden");
+      elements.showResolutionDetailsButton.disabled = false;
+      elements.showResolutionDetailsButton.textContent = "Show resolution details";
+      elements.submitAdminResolutionButton.disabled = false;
+      elements.submitAdminResolutionButton.textContent = "Resolve escalation";
+      elements.adminResolutionOutcome.value = "";
+      elements.adminResolutionMessage.textContent = "";
+      elements.workspaceResolutionPhone.textContent = "-";
+      elements.workspaceResolutionEmail.textContent = "-";
       if (drawer.admin_resolution_status) {
-        adminResolutionSection.classList.remove("hidden");
-        adminResolutionControls.classList.add("hidden");
-        adminResolutionExistingState.classList.remove("hidden");
-        adminResolutionExistingState.textContent = `Resolved from ${textOrDash(drawer.admin_resolution_source)} as ${formatAdminResolutionStatus(drawer.admin_resolution_status)}${drawer.admin_resolution_ts_utc ? ` on ${formatDateTime(drawer.admin_resolution_ts_utc)}` : ""}.`;
-        return;
-      }
-
-      if (drawer.admin_resolution_eligible === true) {
-        adminResolutionSection.classList.remove("hidden");
+        elements.adminResolutionSection.classList.remove("hidden");
+        elements.adminResolutionControls.classList.add("hidden");
+        elements.adminResolutionExistingState.classList.remove("hidden");
+        elements.adminResolutionExistingState.textContent = `Resolved as ${formatAdminResolutionStatus(drawer.admin_resolution_status)}${drawer.admin_resolution_ts_utc ? ` on ${formatDateTime(drawer.admin_resolution_ts_utc)}` : ""}.`;
+      } else if (drawer.admin_resolution_eligible === true) {
+        elements.adminResolutionSection.classList.remove("hidden");
       }
     }
 
     async function revealResolutionDetails() {
-      if (!activeDrawerLead || !activeDrawerLead.lead_id || resolutionDetailsLoaded) {
-        return;
-      }
-
-      showResolutionDetailsButton.disabled = true;
-      showResolutionDetailsButton.textContent = "Loading details...";
-      adminResolutionMessage.textContent = "";
-
+      if (!activeWorkspaceLead?.lead_id || resolutionDetailsLoaded) return;
+      elements.showResolutionDetailsButton.disabled = true;
+      elements.showResolutionDetailsButton.textContent = "Loading details...";
+      elements.adminResolutionMessage.textContent = "";
       try {
-        const params = new URLSearchParams({ lead_id: activeDrawerLead.lead_id });
-        const response = await fetch(`/.netlify/functions/control-tower-escalation-detail?${params.toString()}`, {
-          method: "GET",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-
-        let result = {};
-        try {
-          result = await response.json();
-        } catch (parseError) {
-          result = {};
-        }
-
-        if (!response.ok || result.ok !== true || !result.lead) {
-          adminResolutionMessage.textContent = result.error?.message || "Resolution details could not be loaded.";
-          showResolutionDetailsButton.disabled = false;
-          showResolutionDetailsButton.textContent = "Show resolution details";
-          return;
-        }
-
-        setText("drawerResolutionPhone", textOrDash(result.lead.phone));
-        setText("drawerResolutionEmail", textOrDash(result.lead.email));
-        resolutionDetailsPanel.classList.remove("hidden");
-        showResolutionDetailsButton.classList.add("hidden");
+        const params = new URLSearchParams({ lead_id: activeWorkspaceLead.lead_id });
+        const response = await fetch(`/.netlify/functions/control-tower-escalation-detail?${params}`, { headers: { Accept: "application/json" } });
+        const result = await safeJson(response);
+        if (!response.ok || result.ok !== true || !result.lead) throw new Error(result.error?.message || "Resolution details could not be loaded.");
+        elements.workspaceResolutionPhone.textContent = textOrFallback(result.lead.phone, "-");
+        elements.workspaceResolutionEmail.textContent = textOrFallback(result.lead.email, "-");
+        elements.resolutionDetailsPanel.classList.remove("hidden");
+        elements.showResolutionDetailsButton.classList.add("hidden");
         resolutionDetailsLoaded = true;
       } catch (error) {
-        adminResolutionMessage.textContent = "Resolution details could not be loaded.";
-        showResolutionDetailsButton.disabled = false;
-        showResolutionDetailsButton.textContent = "Show resolution details";
+        elements.adminResolutionMessage.textContent = error.message || "Resolution details could not be loaded.";
+        elements.showResolutionDetailsButton.disabled = false;
+        elements.showResolutionDetailsButton.textContent = "Show resolution details";
       }
     }
 
     async function submitAdminResolution() {
-      if (!activeDrawerLead || !activeDrawerLead.lead_id) {
+      const status = String(elements.adminResolutionOutcome.value || "").trim();
+      if (!activeWorkspaceLead?.lead_id || !status) {
+        elements.adminResolutionMessage.textContent = "Select a resolution outcome before resolving the escalation.";
         return;
       }
-
-      const selectedStatus = String(adminResolutionOutcome.value || "").trim();
-
-      if (!selectedStatus) {
-        adminResolutionMessage.textContent = "Select a resolution outcome before resolving the escalation.";
-        return;
-      }
-
-      submitAdminResolutionButton.disabled = true;
-      submitAdminResolutionButton.textContent = "Resolving...";
-      adminResolutionMessage.textContent = "";
-
+      elements.submitAdminResolutionButton.disabled = true;
+      elements.submitAdminResolutionButton.textContent = "Resolving...";
       try {
         const response = await fetch("/.netlify/functions/control-tower-resolve-escalation", {
           method: "POST",
-          headers: {
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            lead_id: activeDrawerLead.lead_id,
-            admin_resolution_status: selectedStatus
-          })
+          headers: { Accept: "application/json", "Content-Type": "application/json" },
+          body: JSON.stringify({ lead_id: activeWorkspaceLead.lead_id, admin_resolution_status: status })
         });
-
-        let result = {};
-        try {
-          result = await response.json();
-        } catch (parseError) {
-          result = {};
-        }
-
-        if (!response.ok || result.ok !== true) {
-          adminResolutionMessage.textContent = result.error?.message || "The escalation could not be resolved.";
-          submitAdminResolutionButton.disabled = false;
-          submitAdminResolutionButton.textContent = "Resolve escalation";
-          return;
-        }
-
-        adminResolutionMessage.textContent = "Escalation resolved. Refreshing dashboard...";
+        const result = await safeJson(response);
+        if (!response.ok || result.ok !== true) throw new Error(result.error?.message || "The escalation could not be resolved.");
+        elements.adminResolutionMessage.textContent = "Escalation resolved. Refreshing dashboard...";
         await loadDashboardData();
       } catch (error) {
-        adminResolutionMessage.textContent = "The escalation could not be resolved.";
-        submitAdminResolutionButton.disabled = false;
-        submitAdminResolutionButton.textContent = "Resolve escalation";
+        elements.adminResolutionMessage.textContent = error.message || "The escalation could not be resolved.";
+        elements.submitAdminResolutionButton.disabled = false;
+        elements.submitAdminResolutionButton.textContent = "Resolve escalation";
       }
     }
 
     function renderLifecycleEvents(events) {
-      const container = document.getElementById("drawerLifecycleEvents");
-      container.innerHTML = "";
-
-      if (!events.length) {
-        const empty = document.createElement("p");
-        empty.className = "text-sm text-slate-500";
-        empty.textContent = "No recent lifecycle events available.";
-        container.appendChild(empty);
-        return;
+      const safeEvents = Array.isArray(events) ? events : [];
+      if (!safeEvents.length) {
+        const empty = document.createElement("p"); empty.className = "row-subtext"; empty.textContent = "No recent lifecycle events available.";
+        elements.workspaceLifecycleEvents.replaceChildren(empty); return;
       }
-
-      events.forEach((event) => {
-        const item = document.createElement("div");
-        item.className = "rounded-xl border border-slate-200 bg-slate-50 p-4";
-
-        const label = document.createElement("p");
-        label.className = "font-semibold text-slate-900";
-        label.textContent = textOrDash(event.event_label);
-
-        const meta = document.createElement("p");
-        meta.className = "mt-1 text-sm text-slate-500";
-        meta.textContent = [
-          formatDateTime(event.event_ts_utc),
-          textOrDash(event.event_stage),
-          textOrDash(event.selected_action)
-        ].filter(value => value && value !== "-").join(" / ") || "-";
-
-        item.appendChild(label);
-        item.appendChild(meta);
-        container.appendChild(item);
-      });
+      elements.workspaceLifecycleEvents.replaceChildren(...safeEvents.slice().reverse().map(event => {
+        const item = document.createElement("div"); item.className = "timeline-item";
+        const label = document.createElement("strong"); label.textContent = textOrFallback(event.event_label, "Lifecycle event");
+        const meta = document.createElement("span"); meta.textContent = [formatDateTime(event.event_ts_utc), event.event_stage, event.selected_action].filter(Boolean).join(" · ");
+        item.append(label, meta); return item;
+      }));
     }
 
-    function setText(id, value) {
-      const element = document.getElementById(id);
-
-      if (element) {
-        element.textContent = value;
-      }
+    function detailItem(label, value) {
+      const item = document.createElement("div"); item.className = "detail-item";
+      const labelElement = document.createElement("span"); labelElement.textContent = label;
+      const valueElement = document.createElement("strong"); valueElement.textContent = textOrFallback(value, "-");
+      item.append(labelElement, valueElement); return item;
     }
 
-    function renderMiniCount(label, value) {
-      const item = document.createElement("span");
-      item.className = "rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1";
-      item.textContent = `${label}: ${safeNumber(value)}`;
-      return item;
-    }
-
-    function formatSourceLabel(source) {
-      const system = textOrDash(source?.source_system);
-      const detail = cleanSourceDetail(source?.source_detail);
-
-      if (system === "-" && !detail) {
-        return "-";
-      }
-
-      if (!detail) {
-        return system;
-      }
-
-      return `${system} / ${detail}`;
-    }
-
-    function cleanSourceDetail(value) {
-      const text = String(value || "").trim();
-
-      if (!text) {
-        return "";
-      }
-
-      if (text === "ENGAGEPRIORITY_TEST_FORM") {
-        return "Website Form";
-      }
-
-      return text
-        .replace(/_/g, " ")
-        .toLowerCase()
-        .replace(/\b\w/g, (char) => char.toUpperCase());
+    function appendMeta(container, value) {
+      if (!String(value || "").trim()) return;
+      const line = document.createElement("span"); line.textContent = value; container.append(line);
     }
 
     function formatAdminResolutionStatus(value) {
-      const normalized = String(value || "").trim().toUpperCase();
-
-      const labels = {
+      return ({
         ADMIN_CONTACTED_APPOINTMENT_SET: "Contacted — Appointment Set",
         ADMIN_CONTACTED_NOT_INTERESTED: "Contacted — Not Interested",
         ADMIN_NO_ANSWER: "No Answer — Admin Attempted",
         ADMIN_NO_ACTION: "No Action — Admin Closed"
-      };
-
-      return labels[normalized] || textOrDash(value);
+      })[String(value || "").toUpperCase()] || textOrFallback(value, "-");
     }
 
-    function riskClassFor(label) {
-      const normalized = String(label || "").toLowerCase();
-
-      if (normalized === "escalated") return "risk-escalated";
-      if (normalized === "overdue") return "risk-overdue";
-      if (normalized === "needs action") return "risk-needs-action";
-      if (normalized === "closed") return "risk-closed";
-
-      return "risk-on-track";
+    function sourceLabel(source) {
+      return [source?.source_system, source?.source_detail].map(value => String(value || "").trim()).filter(Boolean).join(" · ") || "-";
     }
 
     function formatDateTime(value) {
-      if (!value) {
-        return "";
-      }
-
+      if (!value) return "";
       const date = new Date(value);
-
-      if (Number.isNaN(date.getTime())) {
-        return "";
-      }
-
-      return new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit"
-      }).format(date);
+      if (Number.isNaN(date.getTime())) return "";
+      return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(date);
     }
 
-    function safeNumber(value) {
-      const number = Number(value);
+    function textOrFallback(value, fallback) { const text = String(value ?? "").trim(); return text || fallback; }
+    function numberOrZero(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
+    async function safeJson(response) { try { return await response.json(); } catch (error) { return {}; } }
 
-      if (!Number.isFinite(number)) {
-        return 0;
-      }
-
-      return number;
-    }
-
-    function textOrDash(value) {
-      const text = String(value || "").trim();
-      return text || "-";
-    }
-
-    logoutButton.addEventListener("click", async () => {
-      logoutButton.disabled = true;
-      logoutButton.textContent = "Signing out...";
-
+    elements.logoutButton.addEventListener("click", async () => {
+      elements.logoutButton.disabled = true;
+      elements.logoutButton.textContent = "Signing out...";
       try {
-        const response = await fetch("/.netlify/functions/control-tower-logout", {
-          method: "POST",
-          headers: {
-            "Accept": "application/json"
-          }
-        });
-
-        let result = {};
-        try {
-          result = await response.json();
-        } catch (parseError) {
-          result = {};
-        }
-
+        const response = await fetch("/.netlify/functions/control-tower-logout", { method: "POST", headers: { Accept: "application/json" } });
+        const result = await safeJson(response);
         window.location.href = result.redirect_to || "/login?status=signed_out";
-      } catch (error) {
-        window.location.href = "/login?status=signed_out";
-      }
+      } catch (error) { window.location.href = "/login?status=signed_out"; }
     });
-
-    refreshButton.addEventListener("click", loadDashboardData);
-    retryButton.addEventListener("click", loadDashboardData);
-    timeFilterControls.addEventListener("click", (event) => {
-      const button = event.target.closest("[data-time-filter]");
-
-      if (!button) {
-        return;
-      }
-
-      const nextTimeFilter = button.dataset.timeFilter;
-
-      if (!Object.prototype.hasOwnProperty.call(timeFilterLabels, nextTimeFilter)) {
-        return;
-      }
-
-      currentTimeFilter = nextTimeFilter;
-      updateFilterUi();
-      loadDashboardData();
+    elements.refreshButton.addEventListener("click", loadDashboardData);
+    elements.retryButton.addEventListener("click", loadDashboardData);
+    document.querySelectorAll("[data-view]").forEach(button => {
+      button.addEventListener("click", () => {
+        currentView = ["agent", "side-by-side"].includes(button.dataset.view) ? button.dataset.view : view.DEFAULT_VIEW;
+        renderOperationalView();
+      });
     });
-    clearStatusFilterButton.addEventListener("click", () => {
-      if (!currentSummaryFilter) {
-        return;
-      }
-
-      currentSummaryFilter = null;
-      updateFilterUi();
-      loadDashboardData();
+    elements.workspaceCloseButton.addEventListener("click", closeLeadWorkspace);
+    elements.leadWorkspaceOverlay.addEventListener("click", event => { if (event.target === elements.leadWorkspaceOverlay) closeLeadWorkspace(); });
+    elements.leadWorkspaceOverlay.addEventListener("keydown", trapWorkspaceFocus);
+    elements.showResolutionDetailsButton.addEventListener("click", revealResolutionDetails);
+    elements.submitAdminResolutionButton.addEventListener("click", submitAdminResolution);
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && !elements.leadWorkspaceOverlay.classList.contains("hidden")) closeLeadWorkspace();
     });
-    showResolutionDetailsButton.addEventListener("click", revealResolutionDetails);
-    submitAdminResolutionButton.addEventListener("click", submitAdminResolution);
-    drawerCloseButton.addEventListener("click", closeLeadDrawer);
-    detailDrawerOverlay.addEventListener("click", (event) => {
-      if (!event.target.closest("aside")) {
-        closeLeadDrawer();
-      }
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        closeLeadDrawer();
-      }
-    });
-
-    updateFilterUi();
     checkSession();
   </script>
 </body>
