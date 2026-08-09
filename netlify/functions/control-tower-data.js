@@ -14,6 +14,14 @@ const {
   unauthorizedResponse,
   nowIso
 } = require("./control-tower-utils");
+const {
+  aggregateResponseTimes,
+  buildExplicitReassignmentCounts,
+  buildResponseTimeSamples,
+  deriveLifecyclePresentation,
+  getServiceWindowStatus,
+  initialsForName
+} = require("./control-tower-view-model");
 
 const TAB_SESSIONS = "ControlTowerSessions";
 const TAB_APPROVED_ADMIN_CONTACTS = "ApprovedAdminContacts";
@@ -33,28 +41,6 @@ const CONTACT_STATUS_ACTIVE = "ACTIVE";
 const CONTACT_ROLE_ADMIN = "ADMIN";
 const CLIENT_STATUS_ACTIVE = "ACTIVE";
 
-const VALID_TIME_FILTERS = new Set(["today", "last_7_days", "active_only"]);
-const VALID_SUMMARY_FILTERS = new Set([
-  "awaiting_agent_action",
-  "reminder_active",
-  "reassignment_active",
-  "escalated_to_admin",
-  "closed"
-]);
-
-const RECORD_LIMIT = 20;
-
-const STATUS_PRIORITY = {
-  "Escalated to Admin": 1,
-  "Reassignment Pending": 2,
-  "Pending Release": 3,
-  "Closed": 4,
-  "Agent Action Started": 5,
-  "No Answer Follow-up": 6,
-  "Reminder Active": 7,
-  "Awaiting Agent Action": 8
-};
-
 exports.handler = async function handler(event) {
   const method = String(event.httpMethod || "").toUpperCase();
 
@@ -63,14 +49,9 @@ exports.handler = async function handler(event) {
   }
 
   const eventTsUtc = nowIso();
-  const query = event.queryStringParameters || {};
-  const timeFilter = normalizeTimeFilter(query.time_filter);
-  const summaryFilter = normalizeSummaryFilter(query.summary_filter);
-
   console.log("control_tower_data_request_received", {
     method,
-    time_filter: timeFilter,
-    summary_filter: summaryFilter || "",
+    presentation_scope: "CURRENT_ACTIVE_WORK",
     event_ts_utc: eventTsUtc
   });
 
@@ -122,6 +103,8 @@ exports.handler = async function handler(event) {
         "source_detail",
         "full_name",
         "assigned_agent_id",
+        "assigned_timestamp",
+        "assignment_ts_utc",
         "contacted_flag",
         "contact_timestamp",
         "lead_status",
@@ -178,10 +161,23 @@ exports.handler = async function handler(event) {
 
     const nowMs = Date.now();
     const todayKey = localDateKey(new Date(nowMs), clientTimezone);
-    const sevenDaysAgoMs = nowMs - 7 * 24 * 60 * 60 * 1000;
+    const serviceWindow = getServiceWindowStatus(clientRow, new Date(nowMs));
+    const clientLeadRows = leadLogTable.rows.filter(row => sameClient(row, clientId));
+    const clientLifecycleEvents = lifecycleTable.rows.filter(row => sameClient(row, clientId));
+    const responseTimeSamples = buildResponseTimeSamples({
+      leadRows: clientLeadRows,
+      lifecycleEvents: clientLifecycleEvents,
+      timeZone: clientTimezone,
+      todayKey
+    });
+    const responseTimes = aggregateResponseTimes(responseTimeSamples);
+    const explicitReassignments = buildExplicitReassignmentCounts(
+      clientLifecycleEvents,
+      clientTimezone,
+      todayKey
+    );
 
-    let derivedLeads = leadLogTable.rows
-      .filter(row => sameClient(row, clientId))
+    const derivedLeads = clientLeadRows
       .map(row => deriveLeadRecord({
         leadRow: row,
         agentsById,
@@ -190,22 +186,25 @@ exports.handler = async function handler(event) {
         actionLinks: actionLinksByLeadId.get(String(row.lead_id || "").trim()) || [],
         lifecycleEvents: lifecycleByLeadId.get(String(row.lead_id || "").trim()) || [],
         clientTimezone,
-        todayKey,
         nowMs
       }))
-      .filter(record => passesTimeFilter(record, timeFilter, todayKey, sevenDaysAgoMs, clientTimezone))
-      .filter(record => passesSummaryFilter(record, summaryFilter));
+      .filter(record => !record._filter.is_closed);
 
-    const summary = buildSummary(derivedLeads);
+    const summary = buildOperationalSummary(derivedLeads, responseTimes.team);
     const sortedPublicLeads = sortLeadRecords(derivedLeads);
-    const visibleLeads = sortedPublicLeads.slice(0, RECORD_LIMIT);
+    const agentRows = buildAgentRows({
+      agentRows: agentsTable.rows,
+      clientId,
+      activeLeads: sortedPublicLeads,
+      responseTimesByAgent: responseTimes.per_agent,
+      explicitReassignments
+    });
 
     console.log("control_tower_data_response_ready", {
       client_id: clientId,
-      time_filter: timeFilter,
-      summary_filter: summaryFilter || "",
-      total_filtered_count: derivedLeads.length,
-      visible_record_count: visibleLeads.length,
+      presentation_scope: "CURRENT_ACTIVE_WORK",
+      active_record_count: sortedPublicLeads.length,
+      response_time_completed_cycle_count: responseTimes.team.completed_cycle_count,
       event_ts_utc: nowIso()
     });
 
@@ -213,13 +212,16 @@ exports.handler = async function handler(event) {
       ok: true,
       meta: {
         last_updated_ts_utc: nowIso(),
-        time_filter: timeFilter,
-        summary_filter: summaryFilter,
-        record_limit: RECORD_LIMIT,
-        visible_record_count: visibleLeads.length
+        presentation_scope: "CURRENT_ACTIVE_WORK",
+        current_active_work_only: true,
+        record_limit: null,
+        active_record_count: sortedPublicLeads.length,
+        metric_population_local_date: todayKey
       },
+      service_window: serviceWindow,
       summary,
-      leads: visibleLeads
+      agents: agentRows,
+      leads: sortedPublicLeads
     });
   } catch (error) {
     if (error && error.code === "SESSION_REQUIRED") {
@@ -328,6 +330,10 @@ async function validateSession(event) {
     "client_id",
     "client_status",
     "primary_timezone",
+    "business_day_start_time",
+    "business_day_end_time",
+    "business_days_active",
+    "off_hours_release_mode",
     "lead_data_spreadsheet_id"
   ], TAB_CLIENTS);
 
@@ -446,7 +452,6 @@ function deriveLeadRecord({
   actionLinks,
   lifecycleEvents,
   clientTimezone,
-  todayKey,
   nowMs
 }) {
   const leadId = trimmed(leadRow.lead_id);
@@ -454,7 +459,6 @@ function deriveLeadRecord({
   const assignedAgentId = trimmed(leadRow.assigned_agent_id);
   const receivedTsUtc = firstNonBlank(leadRow.created_timestamp, leadRow.assignment_ts_utc);
   const receivedMs = parseDateMs(receivedTsUtc) || 0;
-  const contactTsUtc = trimmed(leadRow.contact_timestamp);
   const adminResolutionStatus = trimmed(leadRow.admin_resolution_status);
   const adminResolutionTsUtc = trimmed(leadRow.admin_resolution_ts_utc);
   const adminResolutionSource = trimmed(leadRow.admin_resolution_source);
@@ -478,6 +482,13 @@ function deriveLeadRecord({
     activeReminder,
     pendingRelease
   });
+  const lifecyclePresentation = deriveLifecyclePresentation({
+    leadRow,
+    activeReminder,
+    pendingRelease,
+    isClosed: isClosedRecord,
+    nowMs
+  });
 
   const nextAction = deriveNextAction({
     statusPrimary,
@@ -499,16 +510,11 @@ function deriveLeadRecord({
 
   return {
     _sort: {
-      status_priority: STATUS_PRIORITY[statusPrimary] || 99,
-      received_ms: receivedMs,
-      due_ms: parseDateMs(nextAction.due_ts_utc) || Number.MAX_SAFE_INTEGER
+      lifecycle_order: lifecyclePresentation.order || 98,
+      received_ms: receivedMs
     },
     _filter: {
-      status_primary: statusPrimary,
-      summary_key: summaryKeyForStatus(statusPrimary),
-      is_closed: isClosedRecord,
-      closed_today: isClosedRecord && isLocalToday(contactTsUtc || leadRow.last_updated_timestamp, todayKey, clientTimezone),
-      received_ms: receivedMs
+      is_closed: isClosedRecord
     },
     lead_id: leadId,
     trace_id: traceId,
@@ -521,12 +527,15 @@ function deriveLeadRecord({
     },
     assigned_agent: {
       agent_id: assignedAgentId || null,
-      agent_name: agentName
+      agent_name: agentName,
+      initials: assignedAgentId ? initialsForName(agentName) : "--",
+      photo_url: null
     },
     status: {
       primary: statusPrimary,
       badges: buildBadges({ activeActionLink, pendingRelease, activeReminder, leadRow })
     },
+    lifecycle: lifecyclePresentation,
     next_action: nextAction,
     risk: {
       label: riskLabel
@@ -681,84 +690,84 @@ function deriveRiskLabel({ statusPrimary, nextActionDueTsUtc, nowMs }) {
   return "On Track";
 }
 
-function passesTimeFilter(record, timeFilter, todayKey, sevenDaysAgoMs, clientTimezone) {
-  if (timeFilter === "active_only") {
-    return !record._filter.is_closed;
-  }
-
-  if (timeFilter === "last_7_days") {
-    return !record._filter.is_closed || record._filter.received_ms >= sevenDaysAgoMs;
-  }
-
-  return !record._filter.is_closed || record._filter.closed_today;
-}
-
-function passesSummaryFilter(record, summaryFilter) {
-  if (!summaryFilter) {
-    return true;
-  }
-
-  return record._filter.summary_key === summaryFilter;
-}
-
-function summaryKeyForStatus(statusPrimary) {
-  if (statusPrimary === "Escalated to Admin") {
-    return "escalated_to_admin";
-  }
-
-  if (statusPrimary === "Reassignment Pending") {
-    return "reassignment_active";
-  }
-
-  if (statusPrimary === "Reminder Active" || statusPrimary === "No Answer Follow-up") {
-    return "reminder_active";
-  }
-
-  if (statusPrimary === "Closed") {
-    return "closed";
-  }
-
-  return "awaiting_agent_action";
-}
-
-function buildSummary(records) {
-  const summary = {
-    awaiting_agent_action: 0,
-    reminder_active: 0,
-    reassignment_active: 0,
-    escalated_to_admin: 0,
-    closed_outcome_recorded: 0
+function buildOperationalSummary(records, responseTimeMetric) {
+  return {
+    active_leads: records.length,
+    at_risk: records.filter(record => record.lifecycle.key === "AT_RISK").length,
+    escalated_to_admin: records.filter(record => record.lifecycle.key === "ESCALATED_TO_ADMIN").length,
+    avg_response_time: {
+      average_ms: responseTimeMetric.average_ms,
+      completed_cycle_count: responseTimeMetric.completed_cycle_count,
+      display: formatDuration(responseTimeMetric.average_ms)
+    }
   };
+}
 
-  records.forEach(record => {
-    const key = record._filter.summary_key;
-
-    if (key === "closed") {
-      summary.closed_outcome_recorded += 1;
-      return;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(summary, key)) {
-      summary[key] += 1;
-    }
+function buildAgentRows({
+  agentRows,
+  clientId,
+  activeLeads,
+  responseTimesByAgent,
+  explicitReassignments
+}) {
+  const leadsByAgent = new Map();
+  activeLeads.forEach(lead => {
+    const agentId = trimmed(lead.assigned_agent?.agent_id);
+    if (!agentId) return;
+    if (!leadsByAgent.has(agentId)) leadsByAgent.set(agentId, []);
+    leadsByAgent.get(agentId).push(lead.lead_id);
   });
 
-  return summary;
+  return agentRows
+    .filter(row => sameClient(row, clientId))
+    .filter(row => upper(row.agent_status) === "ACTIVE" || leadsByAgent.has(trimmed(row.agent_id)))
+    .map(row => {
+      const agentId = trimmed(row.agent_id);
+      const agentName = sanitizedText(row.agent_name) || agentId;
+      const responseMetric = responseTimesByAgent.get(agentId) || {
+        average_ms: null,
+        completed_cycle_count: 0
+      };
+
+      return {
+        agent_id: agentId,
+        agent_name: agentName,
+        initials: initialsForName(agentName),
+        photo_url: null,
+        status: upper(row.agent_status) || null,
+        active_lead_ids: leadsByAgent.get(agentId) || [],
+        active_lead_count: (leadsByAgent.get(agentId) || []).length,
+        avg_response_time: {
+          average_ms: responseMetric.average_ms,
+          completed_cycle_count: responseMetric.completed_cycle_count,
+          display: formatDuration(responseMetric.average_ms)
+        },
+        explicit_reassignments_today: explicitReassignments.get(agentId) || 0
+      };
+    })
+    .sort((left, right) => left.agent_name.localeCompare(right.agent_name));
+}
+
+function formatDuration(valueMs) {
+  if (!Number.isFinite(valueMs)) {
+    return null;
+  }
+
+  const totalSeconds = Math.round(valueMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
 function sortLeadRecords(records) {
   return records
     .slice()
     .sort((left, right) => {
-      if (left._sort.status_priority !== right._sort.status_priority) {
-        return left._sort.status_priority - right._sort.status_priority;
+      if (left._sort.lifecycle_order !== right._sort.lifecycle_order) {
+        return left._sort.lifecycle_order - right._sort.lifecycle_order;
       }
 
-      if (left._sort.due_ms !== right._sort.due_ms) {
-        return left._sort.due_ms - right._sort.due_ms;
-      }
-
-      return right._sort.received_ms - left._sort.received_ms;
+      return left._sort.received_ms - right._sort.received_ms;
     })
     .map(record => {
       const { _sort, _filter, ...publicRecord } = record;
@@ -935,16 +944,6 @@ function formatTimeDisplay(value, timeZone) {
   }
 }
 
-function isLocalToday(value, todayKey, timeZone) {
-  const ms = parseDateMs(value);
-
-  if (!ms) {
-    return false;
-  }
-
-  return localDateKey(new Date(ms), timeZone) === todayKey;
-}
-
 function localDateKey(date, timeZone) {
   try {
     const parts = new Intl.DateTimeFormat("en-CA", {
@@ -962,21 +961,6 @@ function localDateKey(date, timeZone) {
   } catch (error) {
     return date.toISOString().slice(0, 10);
   }
-}
-
-function normalizeTimeFilter(value) {
-  const normalized = String(value || "today").trim().toLowerCase();
-  return VALID_TIME_FILTERS.has(normalized) ? normalized : "today";
-}
-
-function normalizeSummaryFilter(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-
-  if (!normalized) {
-    return null;
-  }
-
-  return VALID_SUMMARY_FILTERS.has(normalized) ? normalized : null;
 }
 
 function sameClient(row, clientId) {
@@ -1023,5 +1007,9 @@ function sanitizedText(value) {
 }
 
 module.exports = {
-  handler: exports.handler
+  handler: exports.handler,
+  _test: {
+    sameClient,
+    sortLeadRecords
+  }
 };
