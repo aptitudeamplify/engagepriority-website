@@ -43,6 +43,12 @@
     .metric { min-height: 82px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); box-shadow: 0 10px 30px rgba(15,23,42,.06); }
     .metric span { display: block; margin-bottom: 7px; color: var(--muted); font-size: .7rem; font-weight: 850; letter-spacing: .11em; text-transform: uppercase; }
     .metric strong { display: block; font-size: clamp(1.4rem,3vw,2.1rem); letter-spacing: -.05em; }
+    .viewbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); box-shadow: 0 12px 35px rgba(15,23,42,.07); }
+    .view-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+    .view-tab { border: 1px solid var(--line); border-radius: 999px; padding: 9px 13px; background: white; color: #42526a; font-weight: 850; cursor: pointer; }
+    .view-tab:hover, .view-tab:focus-visible { border-color: var(--brand-strong); outline: 3px solid rgba(8,145,178,.17); }
+    .view-tab[aria-pressed="true"] { border-color: transparent; background: linear-gradient(135deg, var(--brand), var(--brand-strong)); color: white; }
+    .view-note { color: var(--muted); font-size: .84rem; font-weight: 700; }
     .view-heading { display: flex; justify-content: space-between; gap: 14px; align-items: end; margin-bottom: 13px; }
     .view-heading h2 { margin-bottom: 3px; font-size: clamp(1.35rem,2.4vw,1.85rem); }
     .view-heading p { margin-bottom: 0; color: var(--muted); font-size: .88rem; }
@@ -55,6 +61,14 @@
     .stage-dot { width: 14px; height: 14px; flex: 0 0 auto; border: 1px solid rgba(15,23,42,.16); border-radius: 999px; }
     .row-head h3 { margin-bottom: 1px; font-size: clamp(1.05rem,1.8vw,1.4rem); letter-spacing: -.035em; }
     .row-subtext { margin-bottom: 0; color: var(--muted); font-size: .84rem; font-weight: 650; }
+    .agent-headline { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .avatar { width: 48px; height: 48px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border-radius: 17px; background: linear-gradient(145deg, #0f766e, #7c3aed); color: white; font-weight: 900; box-shadow: inset 0 0 0 2px rgba(255,255,255,.35), 0 10px 22px rgba(15,23,42,.13); }
+    .avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .avatar.admin { background: linear-gradient(145deg, #991b1b, #fb7185); }
+    .queue-icon { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 15px; background: linear-gradient(145deg, #1f3a5f, #0f172a); color: white; font-size: 1.25rem; }
+    .agent-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+    .agent-metric { padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #405069; font-size: .78rem; font-weight: 800; }
+    .minimal-indicator { width: fit-content; margin-bottom: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.75); color: var(--muted); font-size: .82rem; font-weight: 800; }
     .empty-state { margin: 5px 18px 18px; padding: 15px; border: 1px dashed var(--line); border-radius: 16px; background: #f8fafc; color: var(--muted); font-size: .88rem; }
     .business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
     .carousel { position: relative; }
@@ -74,6 +88,7 @@
     .lead-name { margin-bottom: 8px; font-size: 1.02rem; font-weight: 900; letter-spacing: -.02em; }
     .lead-meta { display: grid; gap: 4px; color: #536178; font-size: .78rem; font-weight: 650; }
     .lead-context { padding-top: 9px; border-top: 1px solid rgba(15,23,42,.14); color: #34435b; font-size: .78rem; font-weight: 800; }
+    .status-line { display: inline-flex; width: fit-content; margin-bottom: 7px; padding: 4px 7px; border: 1px solid rgba(15,23,42,.15); border-radius: 999px; background: rgba(255,255,255,.55); color: #25344a; font-size: .66rem; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
     .lifecycle-waiting-for-business-hours .lead-meta, .lifecycle-waiting-for-business-hours .lead-context { color: #edf5ff; }
     .lifecycle-waiting-for-business-hours .lead-context { border-color: rgba(255,255,255,.25); }
     .drawer-backdrop { position: fixed; inset: 0; z-index: 60; display: flex; justify-content: flex-end; background: rgba(2,6,23,.58); backdrop-filter: blur(6px); }
@@ -93,8 +108,8 @@
     .resolution-controls { display: grid; gap: 12px; }
     .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     select { width: 100%; padding: 10px; border: 1px solid #cbd5e1; border-radius: 12px; background: white; }
-    @media (max-width: 780px) { .summary-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .statusbar, .view-heading { align-items: flex-start; flex-direction: column; } }
-    @media (max-width: 640px) { .shell { width: min(100% - 18px,1540px); padding-top: 8px; } .topbar { top: 6px; align-items: flex-start; border-radius: 20px; } .brand img { height: 34px; } .brand h1 { font-size: 1.1rem; } .actions { flex-direction: column; } .button { padding: 8px 10px; } .metric { min-height: 74px; padding: 12px; } .cards-track { grid-auto-columns: clamp(170px,72vw,216px); } .row-head { padding-inline: 14px; } .detail-grid, .contact-grid { grid-template-columns: 1fr; } }
+    @media (max-width: 780px) { .summary-strip { grid-template-columns: repeat(2,minmax(0,1fr)); } .statusbar, .view-heading, .viewbar { align-items: flex-start; flex-direction: column; } }
+    @media (max-width: 640px) { .shell { width: min(100% - 18px,1540px); padding-top: 8px; } .topbar { top: 6px; align-items: flex-start; border-radius: 20px; } .brand img { height: 34px; } .brand h1 { font-size: 1.1rem; } .actions { flex-direction: column; } .button { padding: 8px 10px; } .metric { min-height: 74px; padding: 12px; } .cards-track { grid-auto-columns: clamp(170px,72vw,216px); } .row-head { align-items: flex-start; flex-direction: column; padding-inline: 14px; } .agent-metrics { justify-content: flex-start; } .detail-grid, .contact-grid { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .cards-track { scroll-behavior: auto; } .lead-card:hover, .lead-card:focus-visible { transform: none; } }
   </style>
 </head>
@@ -129,11 +144,18 @@
           <p id="lastUpdatedText">Last updated: -</p>
         </div>
         <section id="summaryStrip" class="summary-strip" aria-label="Operational summary"></section>
+        <section class="viewbar" aria-label="Operational view controls">
+          <div class="view-tabs">
+            <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
+            <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
+          </div>
+          <div class="view-note">Current active work only.</div>
+        </section>
         <div class="view-heading">
-          <div><p class="eyebrow">Lifecycle View</p><h2>Active lead lifecycle</h2><p>Oldest leads appear first within each stage.</p></div>
+          <div><p id="viewEyebrow" class="eyebrow">Lifecycle View</p><h2 id="viewTitle">Active lead lifecycle</h2><p id="viewDescription">Oldest leads appear first within each stage.</p></div>
           <p id="serviceWindowText">Service window: -</p>
         </div>
-        <section id="lifecycleRows" class="stage-stack" aria-label="Active lifecycle rows"></section>
+        <section id="operationalRows" class="stage-stack" aria-label="Active lifecycle rows"></section>
       </div>
     </div>
   </main>
@@ -181,14 +203,17 @@
     const view = window.ControlTowerLifecycleView;
     const elements = Object.fromEntries([
       "sessionLoadingState", "accessErrorState", "appShell", "refreshButton", "logoutButton", "retryButton",
-      "dataLoadingState", "dataErrorState", "dashboardContent", "summaryStrip", "lifecycleRows", "lastUpdatedText",
-      "visibleCountText", "serviceWindowText", "detailDrawerOverlay", "drawerCloseButton", "drawerLeadName",
+      "dataLoadingState", "dataErrorState", "dashboardContent", "summaryStrip", "operationalRows", "lastUpdatedText",
+      "visibleCountText", "serviceWindowText", "viewEyebrow", "viewTitle", "viewDescription", "detailDrawerOverlay", "drawerCloseButton", "drawerLeadName",
       "drawerLeadMeta", "drawerSummary", "drawerLifecycleEvents", "adminResolutionSection", "adminResolutionExistingState",
       "adminResolutionControls", "showResolutionDetailsButton", "resolutionDetailsPanel", "adminResolutionOutcome",
       "submitAdminResolutionButton", "adminResolutionMessage", "drawerResolutionPhone", "drawerResolutionEmail"
     ].map(id => [id, document.getElementById(id)]));
 
     let currentLeads = [];
+    let currentAgents = [];
+    let currentServiceWindow = {};
+    let currentView = view.DEFAULT_VIEW;
     let activeDrawerLead = null;
     let resolutionDetailsLoaded = false;
 
@@ -240,8 +265,10 @@
 
     function renderDashboard(data) {
       currentLeads = Array.isArray(data.leads) ? data.leads : [];
+      currentAgents = Array.isArray(data.agents) ? data.agents : [];
+      currentServiceWindow = data.service_window || {};
       renderSummary(data.summary || {});
-      renderLifecycleRows(currentLeads, data.service_window || {});
+      renderOperationalView();
       elements.visibleCountText.textContent = `${numberOrZero(data.meta?.active_record_count)} active lead${numberOrZero(data.meta?.active_record_count) === 1 ? "" : "s"}`;
       elements.lastUpdatedText.textContent = `Last updated: ${formatDateTime(data.meta?.last_updated_ts_utc) || "-"}`;
       elements.serviceWindowText.textContent = `Service window: ${data.service_window?.is_open === true ? "Open" : "Closed"}`;
@@ -264,8 +291,132 @@
 
     function renderLifecycleRows(leads, serviceWindow) {
       const rows = view.buildLifecycleRows(leads, serviceWindow);
-      elements.lifecycleRows.replaceChildren(...rows.map(renderLifecycleRow));
+      elements.operationalRows.className = "stage-stack";
+      elements.operationalRows.setAttribute("aria-label", "Active lifecycle rows");
+      elements.operationalRows.replaceChildren(...rows.map(renderLifecycleRow));
       wireCarousels();
+    }
+
+    function renderOperationalView() {
+      document.querySelectorAll("[data-view]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.view === currentView));
+      });
+      if (currentView === "agent") {
+        elements.viewEyebrow.textContent = "Agent View";
+        elements.viewTitle.textContent = "Active work by owner";
+        elements.viewDescription.textContent = "Oldest leads appear first within each active owner row.";
+        renderAgentRows(currentLeads, currentAgents, currentServiceWindow);
+        return;
+      }
+      elements.viewEyebrow.textContent = "Lifecycle View";
+      elements.viewTitle.textContent = "Active lead lifecycle";
+      elements.viewDescription.textContent = "Oldest leads appear first within each stage.";
+      renderLifecycleRows(currentLeads, currentServiceWindow);
+    }
+
+    function renderAgentRows(leads, agents, serviceWindow) {
+      const model = view.buildAgentView(leads, agents, serviceWindow);
+      const renderedRows = model.rows.map(renderAgentRow);
+      const content = model.rows[0]?.type === "ADMINISTRATOR" ? [renderedRows.shift()] : [];
+      if (model.waiting_indicator) {
+        const indicator = document.createElement("div");
+        indicator.className = "minimal-indicator";
+        indicator.textContent = model.waiting_indicator;
+        content.push(indicator);
+      }
+      content.push(...renderedRows);
+      if (!content.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "No active queues need attention.";
+        content.push(empty);
+      }
+      elements.operationalRows.className = "stage-stack agent-stack";
+      elements.operationalRows.setAttribute("aria-label", "Active agent rows");
+      elements.operationalRows.replaceChildren(...content);
+      wireCarousels();
+    }
+
+    function renderAgentRow(row) {
+      const panel = document.createElement("section");
+      panel.className = `row-panel${row.type === "ADMINISTRATOR" ? " escalated" : ""}${row.type === "WAITING_QUEUE" ? " business-hours" : ""}`;
+      panel.dataset.agentRow = row.key;
+
+      const head = document.createElement("header");
+      head.className = "row-head";
+      head.append(renderAgentHeadline(row));
+      const metrics = renderAgentMetrics(row);
+      if (metrics) head.append(metrics);
+      panel.append(head);
+
+      const carousel = document.createElement("div");
+      carousel.className = "carousel";
+      carousel.dataset.carousel = "";
+      const left = arrowButton("left", "‹");
+      const track = document.createElement("div");
+      track.className = "cards-track";
+      track.append(...row.items.map(lead => renderLeadCard(lead, row, "agent")));
+      const right = arrowButton("right", "›");
+      carousel.append(left, track, right);
+      panel.append(carousel);
+      return panel;
+    }
+
+    function renderAgentHeadline(row) {
+      const headline = document.createElement("div");
+      headline.className = "agent-headline";
+      if (row.type === "AGENT" || row.type === "ADMINISTRATOR") {
+        const avatar = document.createElement("div");
+        avatar.className = `avatar${row.type === "ADMINISTRATOR" ? " admin" : ""}`;
+        if (row.type === "AGENT" && row.photo_url) {
+          const image = document.createElement("img");
+          image.src = row.photo_url;
+          image.alt = `${row.title} profile`;
+          avatar.append(image);
+        } else {
+          avatar.textContent = row.type === "ADMINISTRATOR" ? "AD" : row.initials;
+          avatar.setAttribute("aria-label", `${row.title} avatar fallback`);
+        }
+        headline.append(avatar);
+      } else {
+        const icon = document.createElement("span");
+        icon.className = "queue-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "◷";
+        headline.append(icon);
+      }
+      const text = document.createElement("div");
+      const title = document.createElement("h3");
+      title.textContent = row.title;
+      const subtitle = document.createElement("p");
+      subtitle.className = "row-subtext";
+      subtitle.textContent = `${row.items.length} active lead${row.items.length === 1 ? "" : "s"}${row.description ? `. ${row.description}.` : ""}`;
+      text.append(title, subtitle);
+      headline.append(text);
+      return headline;
+    }
+
+    function renderAgentMetrics(row) {
+      const metrics = document.createElement("div");
+      metrics.className = "agent-metrics";
+      if (row.type === "AGENT") {
+        metrics.append(
+          agentMetric("Avg. Response Time", row.avg_response_time),
+          agentMetric("Reassignments", row.explicit_reassignments_today)
+        );
+      } else if (row.type === "ADMINISTRATOR") {
+        metrics.append(agentMetric(row.metric.label, row.metric.value));
+      } else {
+        return null;
+      }
+      return metrics;
+    }
+
+    function agentMetric(label, value) {
+      const metric = document.createElement("span");
+      metric.className = "agent-metric";
+      metric.textContent = `${label}: ${value}`;
+      return metric;
     }
 
     function renderLifecycleRow(row) {
@@ -313,27 +464,35 @@
       return panel;
     }
 
-    function renderLeadCard(lead, row) {
+    function renderLeadCard(lead, row, mode = "lifecycle") {
+      const presentation = view.cardPresentation(lead, mode);
       const card = document.createElement("button");
       card.type = "button";
-      card.className = view.cardClassFor(row.key);
+      card.className = view.cardClassFor(lead.lifecycle?.key || row.key);
       card.dataset.leadId = lead.lead_id;
-      card.setAttribute("aria-label", `Open ${textOrFallback(lead.lead_name, "lead")} detail, ${row.label}`);
+      const lifecycleLabel = textOrFallback(presentation.lifecycle_label, row.label || "active lead");
+      card.setAttribute("aria-label", `Open ${presentation.lead_name} detail, ${lifecycleLabel}`);
 
       const body = document.createElement("div");
+      if (mode === "agent") {
+        const status = document.createElement("span");
+        status.className = "status-line";
+        status.textContent = lifecycleLabel;
+        body.append(status);
+      }
       const name = document.createElement("div");
       name.className = "lead-name";
-      name.textContent = textOrFallback(lead.lead_name, "Lead");
+      name.textContent = presentation.lead_name;
       const meta = document.createElement("div");
       meta.className = "lead-meta";
-      appendMeta(meta, lead.phone_display);
-      appendMeta(meta, lead.received_display || formatDateTime(lead.received_ts_utc));
-      if (row.key !== "WAITING_FOR_BUSINESS_HOURS" && lead.assigned_agent?.agent_id) appendMeta(meta, lead.assigned_agent.agent_name);
+      appendMeta(meta, presentation.phone_display);
+      appendMeta(meta, presentation.received_display || formatDateTime(lead.received_ts_utc));
+      if (row.key !== "WAITING_FOR_BUSINESS_HOURS") appendMeta(meta, presentation.assigned_agent_name);
       body.append(name, meta);
 
       const context = document.createElement("div");
       context.className = "lead-context";
-      context.textContent = responseContext(lead, row.key);
+      context.textContent = responseContext(lead, lead.lifecycle?.key || row.key);
       card.append(body, context);
       card.addEventListener("click", () => openLeadDrawer(lead.lead_id));
       return card;
@@ -546,6 +705,12 @@
     });
     elements.refreshButton.addEventListener("click", loadDashboardData);
     elements.retryButton.addEventListener("click", loadDashboardData);
+    document.querySelectorAll("[data-view]").forEach(button => {
+      button.addEventListener("click", () => {
+        currentView = button.dataset.view === "agent" ? "agent" : view.DEFAULT_VIEW;
+        renderOperationalView();
+      });
+    });
     elements.drawerCloseButton.addEventListener("click", closeLeadDrawer);
     elements.detailDrawerOverlay.addEventListener("click", event => { if (event.target === elements.detailDrawerOverlay) closeLeadDrawer(); });
     elements.showResolutionDetailsButton.addEventListener("click", revealResolutionDetails);
