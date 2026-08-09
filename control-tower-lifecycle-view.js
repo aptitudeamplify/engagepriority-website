@@ -108,6 +108,13 @@
     };
   }
 
+  function buildSideBySideView(leads, agents, serviceWindow) {
+    return {
+      lifecycle_rows: buildLifecycleRows(leads, serviceWindow),
+      agent_view: buildAgentView(leads, agents, serviceWindow)
+    };
+  }
+
   function cardClassFor(key) {
     return ROW_BY_KEY.has(key) ? `lead-card lifecycle-${key.toLowerCase().replaceAll("_", "-")}` : "lead-card";
   }
@@ -169,5 +176,5 @@
     return text || fallback;
   }
 
-  return { DEFAULT_VIEW, ROWS, buildAgentView, buildLifecycleRows, cardClassFor, cardPresentation, carouselState, summaryItems };
+  return { DEFAULT_VIEW, ROWS, buildAgentView, buildLifecycleRows, buildSideBySideView, cardClassFor, cardPresentation, carouselState, summaryItems };
 });

@@ -69,6 +69,12 @@
     .agent-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
     .agent-metric { padding: 7px 9px; border: 1px solid var(--line); border-radius: 999px; background: #fff; color: #405069; font-size: .78rem; font-weight: 800; }
     .minimal-indicator { width: fit-content; margin-bottom: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,255,255,.75); color: var(--muted); font-size: .82rem; font-weight: 800; }
+    .side-by-side { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,560px),1fr)); align-items: start; gap: 18px; }
+    .perspective-pane { min-width: 0; }
+    .pane-heading { margin: 0 2px 11px; }
+    .pane-heading h2 { margin-bottom: 3px; font-size: clamp(1.15rem,1.7vw,1.45rem); }
+    .pane-heading p { margin-bottom: 0; color: var(--muted); font-size: .82rem; }
+    .perspective-pane .cards-track { grid-auto-columns: clamp(180px,31%,225px); }
     .empty-state { margin: 5px 18px 18px; padding: 15px; border: 1px dashed var(--line); border-radius: 16px; background: #f8fafc; color: var(--muted); font-size: .88rem; }
     .business-hours .empty-state { border-color: #49698f; background: rgba(31,58,95,.07); color: #2e4667; }
     .carousel { position: relative; }
@@ -148,6 +154,7 @@
           <div class="view-tabs">
             <button class="view-tab" type="button" data-view="lifecycle" aria-pressed="true">Lifecycle View</button>
             <button class="view-tab" type="button" data-view="agent" aria-pressed="false">Agent View</button>
+            <button class="view-tab" type="button" data-view="side-by-side" aria-pressed="false">Side-by-Side View</button>
           </div>
           <div class="view-note">Current active work only.</div>
         </section>
@@ -293,8 +300,12 @@
       const rows = view.buildLifecycleRows(leads, serviceWindow);
       elements.operationalRows.className = "stage-stack";
       elements.operationalRows.setAttribute("aria-label", "Active lifecycle rows");
-      elements.operationalRows.replaceChildren(...rows.map(renderLifecycleRow));
+      renderLifecycleModel(elements.operationalRows, rows);
       wireCarousels();
+    }
+
+    function renderLifecycleModel(container, rows) {
+      container.replaceChildren(...rows.map(renderLifecycleRow));
     }
 
     function renderOperationalView() {
@@ -308,6 +319,13 @@
         renderAgentRows(currentLeads, currentAgents, currentServiceWindow);
         return;
       }
+      if (currentView === "side-by-side") {
+        elements.viewEyebrow.textContent = "Side-by-Side View";
+        elements.viewTitle.textContent = "Lifecycle and owner perspectives";
+        elements.viewDescription.textContent = "The same current active work is shown through both operational perspectives.";
+        renderSideBySide(currentLeads, currentAgents, currentServiceWindow);
+        return;
+      }
       elements.viewEyebrow.textContent = "Lifecycle View";
       elements.viewTitle.textContent = "Active lead lifecycle";
       elements.viewDescription.textContent = "Oldest leads appear first within each stage.";
@@ -316,6 +334,13 @@
 
     function renderAgentRows(leads, agents, serviceWindow) {
       const model = view.buildAgentView(leads, agents, serviceWindow);
+      elements.operationalRows.className = "stage-stack agent-stack";
+      elements.operationalRows.setAttribute("aria-label", "Active agent rows");
+      renderAgentModel(elements.operationalRows, model);
+      wireCarousels();
+    }
+
+    function renderAgentModel(container, model) {
       const renderedRows = model.rows.map(renderAgentRow);
       const content = model.rows[0]?.type === "ADMINISTRATOR" ? [renderedRows.shift()] : [];
       if (model.waiting_indicator) {
@@ -331,10 +356,44 @@
         empty.textContent = "No active queues need attention.";
         content.push(empty);
       }
-      elements.operationalRows.className = "stage-stack agent-stack";
-      elements.operationalRows.setAttribute("aria-label", "Active agent rows");
-      elements.operationalRows.replaceChildren(...content);
+      container.replaceChildren(...content);
+    }
+
+    function renderSideBySide(leads, agents, serviceWindow) {
+      const model = view.buildSideBySideView(leads, agents, serviceWindow);
+      const lifecyclePane = perspectivePane("sideLifecyclePane", "Lifecycle perspective", "Active leads by lifecycle stage.");
+      const agentPane = perspectivePane("sideAgentPane", "Agent perspective", "Active leads by operational owner.");
+      const lifecycleStack = document.createElement("div");
+      lifecycleStack.className = "stage-stack";
+      lifecycleStack.setAttribute("aria-label", "Side-by-Side lifecycle rows");
+      renderLifecycleModel(lifecycleStack, model.lifecycle_rows);
+      const agentStack = document.createElement("div");
+      agentStack.className = "stage-stack agent-stack";
+      agentStack.setAttribute("aria-label", "Side-by-Side agent rows");
+      renderAgentModel(agentStack, model.agent_view);
+      lifecyclePane.append(lifecycleStack);
+      agentPane.append(agentStack);
+      elements.operationalRows.className = "side-by-side";
+      elements.operationalRows.setAttribute("aria-label", "Lifecycle and agent perspectives");
+      elements.operationalRows.replaceChildren(lifecyclePane, agentPane);
       wireCarousels();
+    }
+
+    function perspectivePane(id, titleText, descriptionText) {
+      const pane = document.createElement("section");
+      pane.id = id;
+      pane.className = "perspective-pane";
+      pane.setAttribute("aria-labelledby", `${id}Title`);
+      const heading = document.createElement("header");
+      heading.className = "pane-heading";
+      const title = document.createElement("h2");
+      title.id = `${id}Title`;
+      title.textContent = titleText;
+      const description = document.createElement("p");
+      description.textContent = descriptionText;
+      heading.append(title, description);
+      pane.append(heading);
+      return pane;
     }
 
     function renderAgentRow(row) {
@@ -707,7 +766,7 @@
     elements.retryButton.addEventListener("click", loadDashboardData);
     document.querySelectorAll("[data-view]").forEach(button => {
       button.addEventListener("click", () => {
-        currentView = button.dataset.view === "agent" ? "agent" : view.DEFAULT_VIEW;
+        currentView = ["agent", "side-by-side"].includes(button.dataset.view) ? button.dataset.view : view.DEFAULT_VIEW;
         renderOperationalView();
       });
     });

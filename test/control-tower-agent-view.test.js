@@ -46,12 +46,11 @@ const agents = [
   }
 ];
 
-test("Lifecycle View remains the default and Agent View is the only added selectable view", () => {
+test("Lifecycle View remains the default and Agent View remains selectable", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "control-tower.html"), "utf8");
   assert.equal(view.DEFAULT_VIEW, "lifecycle");
   assert.match(html, /data-view="lifecycle" aria-pressed="true">Lifecycle View/);
   assert.match(html, /data-view="agent" aria-pressed="false">Agent View/);
-  assert.equal(html.includes("Side-by-Side View"), false);
 });
 
 test("business-hours Agent View shows Administrator and only real agents with active normal leads", () => {
