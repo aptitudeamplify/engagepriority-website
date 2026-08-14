@@ -1,6 +1,7 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomBytes, randomUUID } = require("crypto");
+const { instrumentAnalyticsBoundary } = require("./analytics-client");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -445,6 +446,16 @@ exports.handler = async (event, context) => {
     release_attempts: claimResult.release_attempts
   });
 
+  instrumentAnalyticsBoundary(context, {
+    boundary: "AFTER_HOURS_RELEASE_DISPATCH_CLAIMED",
+    candidate_record_types: ["DISPATCH_CLAIMED"],
+    source_correlation_id: release_id,
+    client_id: clientId,
+    lead_id: leadId,
+    dispatch_claimed_ts_utc: claimResult.dispatch_claimed_ts_utc,
+    provider_binding_status: "PENDING_LIFECYCLE_ASSIGNMENT_OWNER_AGENT_AND_SEQUENCE_BINDING"
+  });
+
   const agentsRes =
     await sheets.spreadsheets.values.get({
       spreadsheetId: SHEET_ID,
@@ -732,6 +743,16 @@ exports.handler = async (event, context) => {
     assigned_agent_id: assignmentResult.assigned_agent_id,
     routing_pointer_before: assignmentResult.routing_pointer_before,
     routing_pointer_after: assignmentResult.routing_pointer_after
+  });
+
+  instrumentAnalyticsBoundary(context, {
+    boundary: "AFTER_HOURS_RELEASE_OPERATIONALLY_COMMITTED",
+    candidate_record_types: ["ASSIGNMENT_CREATED", "GATEWAY_CREATED", "NOTIFICATION_REQUESTED"],
+    source_correlation_id: release_id,
+    client_id: clientId,
+    lead_id: leadId,
+    assigned_agent_id: assignmentResult.assigned_agent_id,
+    provider_binding_status: "PENDING_LIFECYCLE_ASSIGNMENT_OWNER_POLICY_SEQUENCE_AND_TWILIO_BINDING"
   });
 
   console.log("release_row_eligible", {

@@ -1,6 +1,7 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomUUID } = require("crypto");
+const { instrumentAnalyticsBoundary } = require("./analytics-client");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -457,6 +458,16 @@ if (
   timing.total_ms =
     Date.now() - startTotal;
 
+  instrumentAnalyticsBoundary(context, {
+    boundary: "INTAKE_HELD_AFTER_HOURS_COMMITTED",
+    candidate_record_types: ["LEAD_ACCEPTED", "LIFECYCLE_OPENED"],
+    source_correlation_id: trace_id,
+    client_id: client.client_id,
+    lead_id: leadId,
+    operational_committed_ts_utc: nowUtc,
+    provider_binding_status: "PENDING_LIFECYCLE_POLICY_SEQUENCE_BINDING"
+  });
+
   return {
     statusCode: 200,
     body: JSON.stringify({
@@ -798,6 +809,17 @@ console.log("intake_handoff_error", { trace_id });
 
 
 timing.total_ms = Date.now() - startTotal;
+
+instrumentAnalyticsBoundary(context, {
+  boundary: "INTAKE_OPERATIONALLY_COMMITTED",
+  candidate_record_types: ["LEAD_ACCEPTED", "LIFECYCLE_OPENED", "ASSIGNMENT_CREATED", "GATEWAY_CREATED", "NOTIFICATION_REQUESTED"],
+  source_correlation_id: trace_id,
+  client_id: client.client_id,
+  lead_id: leadId,
+  assigned_agent_id: assignmentResult.assigned_agent_id,
+  operational_committed_ts_utc: nowUtc,
+  provider_binding_status: "PENDING_LIFECYCLE_ASSIGNMENT_OWNER_POLICY_SEQUENCE_AND_TWILIO_BINDING"
+});
 
 return {
   statusCode: 200,

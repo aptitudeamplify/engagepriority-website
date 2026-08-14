@@ -1,0 +1,8 @@
+{
+  "record_types": ["NOTIFICATION_REQUESTED", "NOTIFICATION_PROVIDER_ACCEPTED", "NOTIFICATION_PROVIDER_REJECTED"],
+  "logical_owner": "COMPONENT_MAKING_TWILIO_REQUEST",
+  "request_boundary": "DURABLE_NOTIFICATION_ATTEMPT_BEFORE_TWILIO_REQUEST",
+  "result_boundary": "SYNCHRONOUS_PROVIDER_RESULT_DURABLY_PRESERVED",
+  "required_provider_fields": ["provider_message_id", "provider_status", "provider_accepted_ts_utc_or_provider_rejected_ts_utc"],
+  "prohibited_fields": ["phone", "message_body", "credentials"]
+}

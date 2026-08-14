@@ -15,6 +15,7 @@ const {
   unauthorizedResponse,
   nowIso
 } = require("./control-tower-utils");
+const { instrumentAnalyticsBoundary } = require("./analytics-client");
 
 const TAB_SESSIONS = "ControlTowerSessions";
 const TAB_APPROVED_ADMIN_CONTACTS = "ApprovedAdminContacts";
@@ -46,7 +47,7 @@ const CONTACTED_ADMIN_STATUSES = new Set([
   "ADMIN_CONTACTED_NOT_INTERESTED"
 ]);
 
-exports.handler = async function handler(event) {
+exports.handler = async function handler(event, context) {
   const method = String(event.httpMethod || "").toUpperCase();
 
   if (method !== "POST") {
@@ -182,6 +183,18 @@ exports.handler = async function handler(event) {
       admin_resolution_status: adminResolutionStatus,
       deactivated_admin_link_count: deactivatedAdminLinks,
       event_ts_utc: nowIso()
+    });
+
+    instrumentAnalyticsBoundary(context, {
+      boundary: "ADMIN_RESOLUTION_OPERATIONALLY_COMMITTED",
+      candidate_record_types: ["ADMIN_RESOLUTION_ACCEPTED", "DISPOSITION_RECORDED", "LIFECYCLE_CLOSED"],
+      source_correlation_id: trimmed(leadRow.trace_id),
+      client_id: clientId,
+      lead_id: leadId,
+      administrator_snapshot_ref_hash: hashValue(trimmed(contactRow.approved_contact_key), "analytics_admin_actor"),
+      admin_resolution_status: adminResolutionStatus,
+      operational_committed_ts_utc: resolvedTsUtc,
+      provider_binding_status: "PENDING_LIFECYCLE_ADMIN_RESOLUTION_SEQUENCE_BINDING"
     });
 
     return jsonResponse(200, {

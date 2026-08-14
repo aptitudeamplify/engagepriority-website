@@ -1,4 +1,5 @@
 const { google } = require("googleapis");
+const { instrumentAnalyticsBoundary } = require("./analytics-client");
 
 const MAKE_INITIAL_RESPONSE_WEBHOOK =
   process.env.MAKE_INITIAL_RESPONSE_WEBHOOK_URL;
@@ -217,7 +218,7 @@ function validateActiveGatewayRow(actionRow) {
   return true;
 }
 
-exports.handler = async function (event) {
+exports.handler = async function (event, context) {
   try {
     const shortCode =
      event.queryStringParameters?.short_code ||
@@ -346,6 +347,18 @@ exports.handler = async function (event) {
             claimedTsUtc
         );
 
+        instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_DISPATCH_CLAIMED",
+            candidate_record_types: ["DISPATCH_CLAIMED"],
+            source_correlation_id: actionRow.trace_id || "",
+            client_id: actionRow.client_id || "",
+            lead_id: actionRow.lead_id || "",
+            assigned_agent_id: actionRow.assigned_agent_id || "",
+            gateway_context: gatewayContext,
+            dispatch_claimed_ts_utc: claimedTsUtc,
+            provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
+
         console.log("gateway_action_claimed", {
             short_code: shortCode,
             trace_id: actionRow.trace_id || "",
@@ -408,6 +421,15 @@ exports.handler = async function (event) {
         });
 
         if (!data.ok) {
+            instrumentAnalyticsBoundary(context, {
+                boundary: "ACTION_PROCESSING_FAILED",
+                candidate_record_types: ["PROCESSING_FAILED"],
+                source_correlation_id: actionRow.trace_id || "",
+                client_id: actionRow.client_id || "",
+                lead_id: actionRow.lead_id || "",
+                processing_stage: "ACTION_PROCESSING",
+                provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+            });
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -488,6 +510,16 @@ exports.handler = async function (event) {
             event_ts_utc: new Date().toISOString()
         });
 
+        instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_ATTEMPT_REJECTED",
+            candidate_record_types: ["ACTION_ATTEMPT_REJECTED"],
+            source_correlation_id: actionRow.trace_id || "",
+            client_id: clientId,
+            lead_id: leadId,
+            rejection_reason: "MISSING_ACTION",
+            provider_binding_status: "PENDING_ACTION_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
+
         return {
             statusCode: 400,
             headers: noCacheHeaders,
@@ -514,6 +546,16 @@ exports.handler = async function (event) {
             selected_action: selectedAction,
             reason: "ACTION_NOT_ALLOWED",
             event_ts_utc: new Date().toISOString()
+         });
+
+         instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_ATTEMPT_REJECTED",
+            candidate_record_types: ["ACTION_ATTEMPT_REJECTED"],
+            source_correlation_id: actionRow.trace_id || "",
+            client_id: clientId,
+            lead_id: leadId,
+            rejection_reason: "ACTION_NOT_ALLOWED",
+            provider_binding_status: "PENDING_ACTION_ATTEMPT_AND_SEQUENCE_BINDING"
          });
 
          return {
@@ -551,6 +593,19 @@ exports.handler = async function (event) {
         freshActionRow,
         claimedTsUtc
     );
+
+    instrumentAnalyticsBoundary(context, {
+        boundary: "ACTION_DISPATCH_CLAIMED",
+        candidate_record_types: ["DISPATCH_CLAIMED"],
+        source_correlation_id: actionRow.trace_id || "",
+        client_id: clientId,
+        lead_id: leadId,
+        assigned_agent_id: actionRow.assigned_agent_id || "",
+        gateway_context: gatewayContext,
+        selected_action: selectedAction,
+        dispatch_claimed_ts_utc: claimedTsUtc,
+        provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+    });
 
     console.log("gateway_action_claimed", {
         short_code: shortCode,
@@ -593,6 +648,16 @@ exports.handler = async function (event) {
     });
 
       if (!data.ok) {
+        instrumentAnalyticsBoundary(context, {
+          boundary: "ACTION_PROCESSING_FAILED",
+          candidate_record_types: ["PROCESSING_FAILED"],
+          source_correlation_id: actionRow.trace_id || "",
+          client_id: clientId,
+          lead_id: leadId,
+          selected_action: selectedAction,
+          processing_stage: "ACTION_PROCESSING",
+          provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
         return {
           statusCode: 200,
           headers: noCacheHeaders,
@@ -871,6 +936,14 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
     };
 
   } catch (err) {
+    instrumentAnalyticsBoundary(context, {
+      boundary: "ACTION_PROCESSING_FAILED",
+      candidate_record_types: ["PROCESSING_FAILED"],
+      processing_stage: "ACTION_PROCESSING",
+      failure_category: isSheetsQuotaOrTransientError(err) ? "TRANSIENT_OPERATIONAL_DEPENDENCY" : "UNHANDLED_OPERATIONAL_FAILURE",
+      provider_binding_status: "PENDING_CORRELATION_AND_SEQUENCE_BINDING"
+    });
+
     if (isSheetsQuotaOrTransientError(err)) {
       console.error("gateway_error", {
         safe_error_category: "SHEETS_TEMPORARY_UNAVAILABLE",

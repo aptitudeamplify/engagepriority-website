@@ -1,0 +1,26 @@
+{
+  "auth": {
+    "algorithm": "HMAC-SHA256",
+    "key_id": "uat-netlify-request-v1",
+    "issuer": "engagepriority-netlify",
+    "environment": "UAT",
+    "issued_at_utc": "2026-08-14T00:00:00.000Z",
+    "expires_at_utc": "2026-08-14T00:05:00.000Z",
+    "nonce": "00000000-0000-4000-8000-000000000001",
+    "signature": "GENERATED_BY_TEST"
+  },
+  "request": {
+    "contract_version": "EP-ANALYTICS-V1",
+    "schema_version": "1.0.0",
+    "request_id": "00000000-0000-4000-8000-000000000002",
+    "batch_id": "batch-uat-c-test-001-1",
+    "batch_count": 1,
+    "client_id": "C-TEST-001",
+    "coverage_epoch_id": "epoch-uat-1",
+    "source_id": "NETLIFY_INTAKE",
+    "first_source_sequence": 1,
+    "last_source_sequence": 1,
+    "payload_sha256": "GENERATED_BY_TEST",
+    "payload": { "records": [] }
+  }
+}
