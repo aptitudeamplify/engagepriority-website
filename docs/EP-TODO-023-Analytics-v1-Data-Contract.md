@@ -29,7 +29,7 @@ Netlify boundary hooks in Gate 1 are disabled by default. Enabling the switch wi
 
 ## Physical structures
 
-The exact ordered headers are exported as `PHYSICAL_HEADERS` from `netlify/functions/analytics-contract.js` for:
+The exact ordered headers are exported as `PHYSICAL_HEADERS` from `netlify/functions/_shared/analytics-contract.js` for:
 
 - Per-client `AnalyticsLedger`
 - Central `AnalyticsMeasurementRegistry`
@@ -97,7 +97,7 @@ Event keys use:
 v1|environment|client_id|coverage_epoch_id|record_type|record-specific-transition
 ```
 
-`analytics-contract.js` provides the deterministic construction, required identifier validation, prohibited-data scan, scoped sequence validation, canonicalization, and SHA-256 fact hashing. A retry reuses the same event key, event time, source sequence, semantic payload, and fact hash.
+`netlify/functions/_shared/analytics-contract.js` provides the deterministic construction, required identifier validation, prohibited-data scan, scoped sequence validation, canonicalization, and SHA-256 fact hashing. A retry reuses the same event key, event time, source sequence, semantic payload, and fact hash.
 
 The fact hash binds the semantic ledger fields and canonical payload. It excludes transport observation, ingestion time, batch placement, ledger sequence, and writer deployment metadata.
 

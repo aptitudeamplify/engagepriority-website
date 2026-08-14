@@ -1,7 +1,7 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomBytes, randomUUID } = require("crypto");
-const { instrumentAnalyticsBoundary } = require("./analytics-client");
+const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";

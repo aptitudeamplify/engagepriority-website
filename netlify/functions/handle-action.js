@@ -1,5 +1,5 @@
 const { google } = require("googleapis");
-const { instrumentAnalyticsBoundary } = require("./analytics-client");
+const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
 
 const MAKE_INITIAL_RESPONSE_WEBHOOK =
   process.env.MAKE_INITIAL_RESPONSE_WEBHOOK_URL;

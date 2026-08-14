@@ -15,7 +15,7 @@ const {
   unauthorizedResponse,
   nowIso
 } = require("./control-tower-utils");
-const { instrumentAnalyticsBoundary } = require("./analytics-client");
+const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
 
 const TAB_SESSIONS = "ControlTowerSessions";
 const TAB_APPROVED_ADMIN_CONTACTS = "ApprovedAdminContacts";

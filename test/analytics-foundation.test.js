@@ -5,15 +5,15 @@ const path = require("node:path");
 const {
   CONTRACT_VERSION, SCHEMA_VERSION, ENUMS, PHYSICAL_HEADERS, DISPATCH_REQUIRED,
   PROCESSING_REQUIRED, canonicalize, sha256Hex, buildEvent
-} = require("../netlify/functions/analytics-contract");
+} = require("../netlify/functions/_shared/analytics-contract");
 const {
   base64UrlHmac, requestSigningObject, signRequest, responseFactHashObject,
   responseSigningObject, verifyResponse
-} = require("../netlify/functions/analytics-auth");
+} = require("../netlify/functions/_shared/analytics-auth");
 const {
   analyticsConfig, createRequestEnvelope, submitBatch, instrumentAnalyticsBoundary,
   preserveOperationalOutcome
-} = require("../netlify/functions/analytics-client");
+} = require("../netlify/functions/_shared/analytics-client");
 
 const REQUEST_SECRET = "test-request-secret";
 const RESPONSE_SECRET = "test-response-secret";
