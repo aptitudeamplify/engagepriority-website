@@ -2,6 +2,11 @@ const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomBytes, randomUUID } = require("crypto");
 const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
+const {
+  createAssignmentIdentity,
+  createGatewayIdentity,
+  identityValues
+} = require("./_shared/lifecycle-identity");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -325,7 +330,7 @@ exports.handler = async (event, context) => {
   const leadLogRes =
     await sheets.spreadsheets.values.get({
       spreadsheetId: leadDataSpreadsheetId,
-      range: "LeadLog_Active!A1:BI10000"
+      range: "LeadLog_Active!A1:BO10000"
     });
 
   const leadLogRows = leadLogRes.data.values || [];
@@ -397,6 +402,15 @@ exports.handler = async (event, context) => {
 
   const traceId =
     String(leadLogRow[traceIdIndex] || "").trim();
+
+  const lifecycleIdIndex = leadLogHeaders.indexOf("lifecycle_id");
+  const policySnapshotIdIndex = leadLogHeaders.indexOf("policy_snapshot_id");
+  const heldLifecycleIdentity = lifecycleIdIndex !== -1 && policySnapshotIdIndex !== -1
+    ? {
+        lifecycle_id: String(leadLogRow[lifecycleIdIndex] || "").trim(),
+        policy_snapshot_id: String(leadLogRow[policySnapshotIdIndex] || "").trim()
+      }
+    : null;
 
   if (leadStatus !== "PENDING_RELEASE") {
     return {
@@ -563,6 +577,15 @@ exports.handler = async (event, context) => {
     throw new Error(`Assigned agent phone not found for agent_id: ${assignmentResult.assigned_agent_id}`);
   }
 
+  // Do not fabricate identity for legacy/incomplete held rows. Their operational
+  // release continues, while Analytics remains fail-closed and nonblocking.
+  const assignmentIdentity = heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
+    ? createAssignmentIdentity({
+        lifecycleIdentity: heldLifecycleIdentity,
+        assignedAgentId: assignmentResult.assigned_agent_id
+      })
+    : null;
+
   let downstreamStage =
     "ROUTINGSTATE_UPDATE";
 
@@ -596,6 +619,7 @@ exports.handler = async (event, context) => {
         leadLogRow,
         leadLogRowNumber,
         assignedAgentId: assignmentResult.assigned_agent_id,
+        assignmentIdentity,
         nowUtc
     });
 
@@ -609,7 +633,8 @@ exports.handler = async (event, context) => {
         client,
         assigned_agent_id: assignmentResult.assigned_agent_id,
         trace_id: traceId,
-        nowUtc
+        nowUtc,
+        assignment_identity: assignmentIdentity
         });
 
     downstreamStage =
@@ -622,7 +647,8 @@ exports.handler = async (event, context) => {
         lead_id: leadId,
         assigned_agent_id: assignmentResult.assigned_agent_id,
         trace_id: traceId,
-        nowUtc
+        nowUtc,
+        assignment_identity: assignmentIdentity
         });
 
     downstreamStage =
@@ -752,7 +778,11 @@ exports.handler = async (event, context) => {
     client_id: clientId,
     lead_id: leadId,
     assigned_agent_id: assignmentResult.assigned_agent_id,
-    provider_binding_status: "PENDING_LIFECYCLE_ASSIGNMENT_OWNER_POLICY_SEQUENCE_AND_TWILIO_BINDING"
+    ...(assignmentIdentity || {}),
+    gateway_id: actionLinks?.INITIAL_RESPONSE_GATEWAY?.gateway_id || "",
+    provider_binding_status: assignmentIdentity
+      ? "LIFECYCLE_IDENTITY_BOUND_TWILIO_PROVIDER_PENDING"
+      : "LEGACY_IDENTITY_INCOMPLETE_ANALYTICS_WITHHELD"
   });
 
   console.log("release_row_eligible", {
@@ -777,6 +807,7 @@ exports.handler = async (event, context) => {
       lead_status: leadStatus,
       leadlog_row_number: leadLogRowNumber,
       trace_id: traceId,
+      lifecycle_identity: assignmentIdentity,
       assignment: assignmentResult,
       routing_state_updated: true,
       downstream_writes_enabled: true,
@@ -1137,6 +1168,7 @@ async function updateLeadLogAfterReleaseAssignment({
   leadLogRow,
   leadLogRowNumber,
   assignedAgentId,
+  assignmentIdentity,
   nowUtc
 }) {
   const leadStatusIndex =
@@ -1190,6 +1222,13 @@ async function updateLeadLogAfterReleaseAssignment({
       "RELEASE_FROM_HOLD";
   }
 
+  if (assignmentIdentity) {
+    for (const [field, value] of Object.entries(assignmentIdentity)) {
+      const index = leadLogHeaders.indexOf(field);
+      if (index !== -1) row[index] = value;
+    }
+  }
+
   const endColumn =
     columnNumberToLetter(leadLogHeaders.length);
 
@@ -1227,13 +1266,17 @@ async function createReleaseInitialActionLink({
   client,
   assigned_agent_id,
   trace_id,
-  nowUtc
+  nowUtc,
+  assignment_identity
 }) {
   const gateway_context =
     "INITIAL_RESPONSE_GATEWAY";
 
   const created_ts_utc =
     nowUtc;
+  const gatewayIdentity = assignment_identity
+    ? createGatewayIdentity(assignment_identity)
+    : null;
 
   const existingRes =
     await sheets.spreadsheets.values.get({
@@ -1272,7 +1315,7 @@ async function createReleaseInitialActionLink({
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:P",
+    range: "ActionLinkMap!A:Y",
     valueInputOption: "RAW",
     requestBody: {
       values: [[
@@ -1291,7 +1334,11 @@ async function createReleaseInitialActionLink({
         "",
         "",
         "",
-        trace_id
+        trace_id,
+        ...identityValues(gatewayIdentity),
+        gatewayIdentity?.gateway_id || "",
+        "", // action_attempt_id (Netlify action validator-owned)
+        ""  // operational_action_record_id (Make-owned)
       ]]
     }
   });
@@ -1300,7 +1347,8 @@ async function createReleaseInitialActionLink({
     INITIAL_RESPONSE_GATEWAY: {
       short_code,
       token: short_code,
-      public_url
+      public_url,
+      gateway_id: gatewayIdentity?.gateway_id || ""
     }
   };
 }
@@ -1311,7 +1359,8 @@ async function createReleaseReminderQueueRow({
   lead_id,
   assigned_agent_id,
   trace_id,
-  nowUtc
+  nowUtc,
+  assignment_identity
 }) {
   const reminderDelayMinutes =
     parseInt(client.reminder_1_delay_minutes, 10);
@@ -1335,7 +1384,8 @@ async function createReleaseReminderQueueRow({
     "REMINDER_1",
     "",
     "",
-    ""
+    "",
+    ...identityValues(assignment_identity)
   ];
 
   await sheets.spreadsheets.values.append({

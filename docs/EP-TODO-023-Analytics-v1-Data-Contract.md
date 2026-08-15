@@ -227,3 +227,41 @@ Kayce must implement the exact physical tabs, protected-write rules, nonce trans
 Rip must bind each Make-owned canonical fact only after its documented operational durability boundary, provide complete immutable identifiers, allocate durable scoped source sequences, preserve submission obligations or replayable evidence, and reuse event identities on retry. Fixtures are in `test/fixtures/analytics/make`.
 
 Provider identities, deployed scenario versions, GAS deployment IDs, Twilio synchronous fields, durable retries, exact source sequence allocation, and UAT/Production differences remain live-evidence bindings. Nothing in Gate 1 infers them.
+
+## Production lifecycle-identity physical binding
+
+These additive operational bindings do not enable Analytics. Existing rows are never backfilled or assigned fabricated identities; an incomplete row continues through the operational path and is withheld from Analytics.
+
+| Identifier | Authoritative creator | Durable operational store |
+|---|---|---|
+| `lifecycle_id` | Netlify intake, bound exactly to the newly committed Production `lead_id` | Per-client `LeadLog_Active.lifecycle_id`; copied to queue and gateway rows |
+| `assignment_id` | Netlify at initial assignment (including after-hours release); Make at durably completed replacement assignment | `LeadLog_Active.assignment_id`; copied to `ReminderQueue` and `ActionLinkMap` |
+| `assignment_sequence` | Netlify initializes `1`; Make writes `current + 1` in the same durable replacement-assignment commit | Same rows as `assignment_id`; never derived from `reassignment_count` or row position |
+| `owner_epoch_id` | Assignment creator, once for each owner-assignment epoch | Same rows as `assignment_id` |
+| `agent_id_snapshot` | Assignment creator, using the exact canonical assigned `agent_id` value at creation | Same rows as `assignment_id`; it is an immutable value snapshot, not a new snapshot-record ID or mutable lookup |
+| `gateway_id` | Gateway creator, once per `ActionLinkMap` row | `ActionLinkMap.gateway_id`, independent from `short_code` |
+| `action_attempt_id` | Netlify `handle-action` at the authoritative POST validation boundary | `ActionLinkMap.action_attempt_id`; propagated unchanged to Make |
+| `policy_snapshot_id` | Netlify intake, once for the lifecycle's immutable operational policy binding | `LeadLog_Active.policy_snapshot_id`; preserved by release, reminder, outcome, and reassignment paths |
+| `operational_action_record_id` | Make action processor only, after the operational action and consequences are durably accepted | Make durable operational-action record and `ActionLinkMap.operational_action_record_id`; Netlify never creates it |
+
+### Kayce schema/application instructions
+
+In a separately authorized provider-application window, apply `OperationalIdentitySchema.gs.js` from the Production GAS candidate and do the following in order:
+
+1. Keep Analytics state `DISABLED`, measurement eligibility `FALSE`, and client visibility `FALSE`.
+2. Preview every target and confirm only the following tail headers are missing; stop on duplicate headers or an unexpected existing column with the same meaning.
+3. Append, without reordering existing columns: `LeadLog_Active`: `lifecycle_id`, `assignment_id`, `assignment_sequence`, `owner_epoch_id`, `agent_id_snapshot`, `policy_snapshot_id`; `ReleaseQueue`: `lifecycle_id`, `policy_snapshot_id`; `ReminderQueue`: those six `LeadLog_Active` fields; `ActionLinkMap`: those six plus `gateway_id`, `action_attempt_id`, `operational_action_record_id`.
+4. Protect the new identity columns from manual/formula writes. Permit only the existing Netlify service identity, Production GAS execution owner, and the applicable Make scenario connection at their documented creator/update boundaries.
+5. Do not populate any existing row. Verify legacy blanks remain blank and that Analytics withholding is nonblocking.
+6. Import the candidate GAS files, but do not create triggers, activate Analytics, deploy a new web app, or run `EP_ApplyOperationalIdentitySchemaCandidate` until the explicit provider-application authorization is active.
+
+### Rip Make mappings and resume point
+
+All four operational scenarios must treat the inbound identity fields as immutable strings and reject the Analytics emission only (not operational processing) when any applicable field is blank or conflicts with the durable row.
+
+- Initial response processing: map webhook `lifecycle_id`, `assignment_id`, `assignment_sequence`, `owner_epoch_id`, `agent_id_snapshot`, `policy_snapshot_id`, `gateway_id`, and `action_attempt_id` directly. After the operational action and all consequences commit, create `operational_action_record_id` once in the Make durable action record, mirror it to the matching `ActionLinkMap` row, and emit `AGENT_ACTION_ACCEPTED`. On retry, look up by `action_attempt_id` and reuse the stored operational record ID, event key, source sequence, event time, and fact hash.
+- Reminder processing: read the six identity fields from `ReminderQueue`; preserve them unchanged. Create a fresh `gateway_id` once when appending the replacement gateway row; never reuse or map `short_code` as `gateway_id`.
+- Outcome processing: preserve the six assignment fields from the accepted `CALL_NOW` action/obligation. Create a fresh outcome `gateway_id`; its accepted action receives a new Netlify-created `action_attempt_id`.
+- Reassignment processing: key the request by the prior `action_attempt_id`; preserve `lifecycle_id` and `policy_snapshot_id`; in one durable completion update create a new `assignment_id`, set `assignment_sequence = prior + 1`, create a new `owner_epoch_id`, set `agent_id_snapshot` to the replacement canonical `agent_id`, and create fresh gateway IDs. A retry must detect the stored completed replacement and reuse every resulting identity without a second increment.
+
+Resume from the first inactive Initial Response Processing module that consumes the Netlify action webhook. Apply the identity mappings and durable action-record lookup/create transaction before reconnecting downstream routes. Then update reminder, outcome, and reassignment gateway-creation modules. Keep all scenarios inactive until separate activation approval and provider verification.

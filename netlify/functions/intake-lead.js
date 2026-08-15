@@ -2,6 +2,12 @@ const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomUUID } = require("crypto");
 const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
+const {
+  createLifecycleIdentity,
+  createAssignmentIdentity,
+  createGatewayIdentity,
+  identityValues
+} = require("./_shared/lifecycle-identity");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -75,6 +81,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = google.sheets({ version: "v4", auth });
 const leadId = generateLeadId();
+const lifecycleIdentity = createLifecycleIdentity({ leadId });
 
 t0 = Date.now();
 const registryRes = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
@@ -385,7 +392,13 @@ if (
     "",                                    // token_contacted_not_interested
     "0",                                   // no_answer_attempt_count
     nowUtc,                                // scenario_started_ts_utc
-    nowUtc                                 // scenario_ended_ts_utc
+    nowUtc,                                // scenario_ended_ts_utc
+    lifecycleIdentity.lifecycle_id,        // lifecycle_id
+    "",                                    // assignment_id (created at release)
+    "",                                    // assignment_sequence (created at release)
+    "",                                    // owner_epoch_id (created at release)
+    "",                                    // agent_id_snapshot (created at release)
+    lifecycleIdentity.policy_snapshot_id   // policy_snapshot_id
   ];
 
   const leadLogAppendResult =
@@ -422,10 +435,13 @@ if (
     release_id: randomUUID(),
     client_id: client.client_id,
     lead_id: leadId,
+    lifecycle_id: lifecycleIdentity.lifecycle_id,
+    policy_snapshot_id: lifecycleIdentity.policy_snapshot_id,
     release_due_ts_utc: nowUtc,
     release_reason: "OFF_HOURS_CLIENT_CLOSED",
     created_ts_utc: nowUtc,
-    notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`
+    notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`,
+    lifecycle_identity: lifecycleIdentity
   });
 
   await appendLeadLifecycleEvent({
@@ -464,8 +480,10 @@ if (
     source_correlation_id: trace_id,
     client_id: client.client_id,
     lead_id: leadId,
+    lifecycle_id: lifecycleIdentity.lifecycle_id,
+    policy_snapshot_id: lifecycleIdentity.policy_snapshot_id,
     operational_committed_ts_utc: nowUtc,
-    provider_binding_status: "PENDING_LIFECYCLE_POLICY_SEQUENCE_BINDING"
+    provider_binding_status: "LIFECYCLE_POLICY_BOUND_ASSIGNMENT_PENDING_RELEASE"
   });
 
   return {
@@ -594,6 +612,11 @@ if (!assignedAgent) {
   throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 }
 
+const assignmentIdentity = createAssignmentIdentity({
+  lifecycleIdentity,
+  assignedAgentId: assignmentResult.assigned_agent_id
+});
+
 t0 = Date.now();
 
 const nowUtc = new Date().toISOString();
@@ -666,7 +689,8 @@ const row = [
   "",                                    // token_contacted_not_interested
   "0",                                   // no_answer_attempt_count
   nowUtc,                                // scenario_started_ts_utc
-  ""                                     // scenario_ended_ts_utc
+  "",                                    // scenario_ended_ts_utc
+  ...identityValues(assignmentIdentity)
 ];
 
 const leadLogAppendResult = await sheets.spreadsheets.values.append({
@@ -716,7 +740,8 @@ const reminderRow = [
   "REMINDER_1",
   "", // last_processed_ts_utc
   "", // notes
-  ""  // dispatch_claimed_ts_utc
+  "", // dispatch_claimed_ts_utc
+  ...identityValues(assignmentIdentity)
 ];
 
 await sheets.spreadsheets.values.append({
@@ -733,7 +758,8 @@ const actionLinks = await createInitialActionLinks({
   lead_id: leadId,
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id,
-  trace_id
+  trace_id,
+  assignment_identity: assignmentIdentity
 });
 
 await appendIdempotencyRow({
@@ -759,6 +785,7 @@ console.log("intake_before_sms_send", {
   trace_id,
   lead_id: leadId,
   assigned_agent_id: assignmentResult.assigned_agent_id,
+  ...assignmentIdentity,
   phone: assignedAgent.agent_phone
 });
 
@@ -774,6 +801,7 @@ const handoffPayload = {
   lead_id: leadId,
   client_id: client.client_id,
   assigned_agent_id: assignmentResult.assigned_agent_id,
+  ...assignmentIdentity,
   source_system,
   source_detail: source_primary_key_value,
   submitted_ts_utc: leadPayload.submitted_ts_utc || nowUtc,
@@ -817,8 +845,10 @@ instrumentAnalyticsBoundary(context, {
   client_id: client.client_id,
   lead_id: leadId,
   assigned_agent_id: assignmentResult.assigned_agent_id,
+  ...assignmentIdentity,
+  gateway_id: actionLinks.INITIAL_RESPONSE_GATEWAY.gateway_id,
   operational_committed_ts_utc: nowUtc,
-  provider_binding_status: "PENDING_LIFECYCLE_ASSIGNMENT_OWNER_POLICY_SEQUENCE_AND_TWILIO_BINDING"
+  provider_binding_status: "LIFECYCLE_IDENTITY_BOUND_TWILIO_PROVIDER_PENDING"
 });
 
 return {
@@ -839,6 +869,7 @@ return {
     },
     assignment: {
       assigned_agent_id: assignmentResult.assigned_agent_id,
+      ...assignmentIdentity,
       routing_pointer_before: assignmentResult.routing_pointer_before,
       routing_pointer_after: assignmentResult.routing_pointer_after,
       cycle_length: assignmentResult.cycle_length,
@@ -1204,7 +1235,7 @@ async function withSheetsReadRetry(operation, { maxRetries = 2, baseDelayMs = 25
   }
 }
 
-async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
+async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id, assignment_identity }) {
   const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
   const created_ts_utc = new Date().toISOString();
@@ -1215,11 +1246,13 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
   for (const gateway_context of gatewayContexts) {
     const short_code = generateShortCode();
     const public_url = `https://engagepriority.com/a/${short_code}`;
+    const gatewayIdentity = createGatewayIdentity(assignment_identity);
 
     results[gateway_context] = {
       short_code,
       token: short_code,
-      public_url
+      public_url,
+      gateway_id: gatewayIdentity.gateway_id
     };
 
     rowsToInsert.push([
@@ -1238,7 +1271,11 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
       "", // notes
       "", // deactivated_ts_utc
       "",  // deactivation_reason
-      trace_id  // trace_id
+      trace_id, // trace_id
+      ...identityValues(gatewayIdentity),
+      gatewayIdentity.gateway_id,
+      "", // action_attempt_id (created by handle-action validation)
+      ""  // operational_action_record_id (Make-owned)
     ]);
   }
 
@@ -1252,7 +1289,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:P",
+    range: "ActionLinkMap!A:Y",
     valueInputOption: "RAW",
     requestBody: {
       values: rowsToInsert
@@ -1377,7 +1414,8 @@ async function appendReleaseQueueRow({
   release_due_ts_utc,
   release_reason,
   created_ts_utc,
-  notes
+  notes,
+  lifecycle_identity
 }) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -1403,7 +1441,9 @@ async function appendReleaseQueueRow({
         "",                  // release_result
         "",                  // assigned_agent_id
         notes || "",         // notes
-        ""                   // dispatch_claimed_ts_utc
+        "",                  // dispatch_claimed_ts_utc
+        lifecycle_identity?.lifecycle_id || "",
+        lifecycle_identity?.policy_snapshot_id || ""
       ]]
     }
   });
