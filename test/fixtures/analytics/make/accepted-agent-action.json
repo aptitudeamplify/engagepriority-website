@@ -1,0 +1,12 @@
+{
+  "record_type": "AGENT_ACTION_ACCEPTED",
+  "logical_owner": "MAKE_ACTION_PROCESSOR",
+  "emit_only_after": "ACTION_AND_OPERATIONAL_EFFECTS_DURABLY_COMMITTED",
+  "required_identifiers": [
+    "environment", "client_id", "coverage_epoch_id", "source_id", "source_sequence",
+    "source_correlation_id", "lifecycle_id", "assignment_id", "assignment_sequence",
+    "owner_epoch_id", "agent_id_snapshot", "gateway_id", "action_attempt_id", "policy_snapshot_id"
+  ],
+  "payload_required": ["action_type", "accepted_ts_utc", "operational_action_record_id", "qualifies_as_initial_response"],
+  "retry_rule": "REUSE_EVENT_KEY_SOURCE_SEQUENCE_EVENT_TIME_AND_FACT_HASH"
+}

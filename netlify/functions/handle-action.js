@@ -1,4 +1,6 @@
 const { google } = require("googleapis");
+const { instrumentAnalyticsBoundary } = require("./_shared/analytics-client");
+const { createActionAttemptId } = require("./_shared/lifecycle-identity");
 
 const MAKE_INITIAL_RESPONSE_WEBHOOK =
   process.env.MAKE_INITIAL_RESPONSE_WEBHOOK_URL;
@@ -108,7 +110,7 @@ async function getSheetsClient() {
 async function lookupActionLinkMapRow(sheets, shortCode) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A1:O10000"
+    range: "ActionLinkMap!A1:Y10000"
   });
 
   const rawRows = res.data.values || [];
@@ -124,8 +126,38 @@ async function lookupActionLinkMapRow(sheets, shortCode) {
 
   return {
     ...rows[foundIndex],
-    _sheet_row_number: foundIndex + 2
+    _sheet_row_number: foundIndex + 2,
+    _headers: rawRows[0] || []
   };
+}
+
+function columnNumberToLetter(columnNumber) {
+  let value = columnNumber;
+  let result = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+async function ensureActionAttemptId(sheets, actionRow) {
+  const existing = String(actionRow?.action_attempt_id || "").trim();
+  if (existing) return existing;
+  const headerIndex = (actionRow?._headers || []).indexOf("action_attempt_id");
+  // Legacy/incomplete rows remain operational, but cannot enter Analytics.
+  if (headerIndex === -1 || !actionRow?._sheet_row_number) return "";
+  const actionAttemptId = createActionAttemptId();
+  const column = columnNumberToLetter(headerIndex + 1);
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: `ActionLinkMap!${column}${actionRow._sheet_row_number}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [[actionAttemptId]] }
+  });
+  actionRow.action_attempt_id = actionAttemptId;
+  return actionAttemptId;
 }
 
 async function claimActionLinkForDispatch(sheets, actionRow, claimedTsUtc) {
@@ -146,7 +178,7 @@ async function claimActionLinkForDispatch(sheets, actionRow, claimedTsUtc) {
 async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: leadDataSpreadsheetId,
-    range: "LeadLog_Active!A1:BI10000"
+    range: "LeadLog_Active!A1:BO10000"
   });
 
   const rows = rowsToObjects(res.data.values || []);
@@ -160,7 +192,9 @@ async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
 async function processAction({
   shortCode,
   selectedAction,
-  gatewayContext
+  gatewayContext,
+  actionRow,
+  actionAttemptId
 }) {
 
   let webhookUrl = null;
@@ -184,6 +218,14 @@ async function processAction({
       short_code: shortCode,
       gateway_context: gatewayContext,
       selected_action: selectedAction,
+      lifecycle_id: actionRow?.lifecycle_id || "",
+      assignment_id: actionRow?.assignment_id || "",
+      assignment_sequence: actionRow?.assignment_sequence || "",
+      owner_epoch_id: actionRow?.owner_epoch_id || "",
+      agent_id_snapshot: actionRow?.agent_id_snapshot || "",
+      policy_snapshot_id: actionRow?.policy_snapshot_id || "",
+      gateway_id: actionRow?.gateway_id || "",
+      action_attempt_id: actionAttemptId || "",
       action_trigger_source: "ACTION_GATEWAY_BUTTON",
       agent_action_ts_utc: new Date().toISOString()
     })
@@ -217,7 +259,7 @@ function validateActiveGatewayRow(actionRow) {
   return true;
 }
 
-exports.handler = async function (event) {
+exports.handler = async function (event, context) {
   try {
     const shortCode =
      event.queryStringParameters?.short_code ||
@@ -346,6 +388,18 @@ exports.handler = async function (event) {
             claimedTsUtc
         );
 
+        instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_DISPATCH_CLAIMED",
+            candidate_record_types: ["DISPATCH_CLAIMED"],
+            source_correlation_id: actionRow.trace_id || "",
+            client_id: actionRow.client_id || "",
+            lead_id: actionRow.lead_id || "",
+            assigned_agent_id: actionRow.assigned_agent_id || "",
+            gateway_context: gatewayContext,
+            dispatch_claimed_ts_utc: claimedTsUtc,
+            provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
+
         console.log("gateway_action_claimed", {
             short_code: shortCode,
             trace_id: actionRow.trace_id || "",
@@ -408,6 +462,15 @@ exports.handler = async function (event) {
         });
 
         if (!data.ok) {
+            instrumentAnalyticsBoundary(context, {
+                boundary: "ACTION_PROCESSING_FAILED",
+                candidate_record_types: ["PROCESSING_FAILED"],
+                source_correlation_id: actionRow.trace_id || "",
+                client_id: actionRow.client_id || "",
+                lead_id: actionRow.lead_id || "",
+                processing_stage: "ACTION_PROCESSING",
+                provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+            });
             return {
                 statusCode: 200,
                 headers: noCacheHeaders,
@@ -488,6 +551,16 @@ exports.handler = async function (event) {
             event_ts_utc: new Date().toISOString()
         });
 
+        instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_ATTEMPT_REJECTED",
+            candidate_record_types: ["ACTION_ATTEMPT_REJECTED"],
+            source_correlation_id: actionRow.trace_id || "",
+             client_id: clientId,
+             lead_id: leadId,
+             rejection_reason: "MISSING_ACTION",
+            provider_binding_status: "PENDING_ACTION_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
+
         return {
             statusCode: 400,
             headers: noCacheHeaders,
@@ -516,12 +589,24 @@ exports.handler = async function (event) {
             event_ts_utc: new Date().toISOString()
          });
 
+         instrumentAnalyticsBoundary(context, {
+            boundary: "ACTION_ATTEMPT_REJECTED",
+            candidate_record_types: ["ACTION_ATTEMPT_REJECTED"],
+            source_correlation_id: actionRow.trace_id || "",
+             client_id: clientId,
+             lead_id: leadId,
+             rejection_reason: "ACTION_NOT_ALLOWED",
+            provider_binding_status: "PENDING_ACTION_ATTEMPT_AND_SEQUENCE_BINDING"
+         });
+
          return {
             statusCode: 400,
             headers: noCacheHeaders,
             body: errorPage("Invalid action")
          };
        }
+
+       const actionAttemptId = await ensureActionAttemptId(sheets, actionRow);
 
        const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
 
@@ -552,6 +637,27 @@ exports.handler = async function (event) {
         claimedTsUtc
     );
 
+    instrumentAnalyticsBoundary(context, {
+        boundary: "ACTION_DISPATCH_CLAIMED",
+        candidate_record_types: ["DISPATCH_CLAIMED"],
+        source_correlation_id: actionRow.trace_id || "",
+        client_id: clientId,
+        lead_id: leadId,
+        assigned_agent_id: actionRow.assigned_agent_id || "",
+        lifecycle_id: actionRow.lifecycle_id || "",
+        assignment_id: actionRow.assignment_id || "",
+        assignment_sequence: actionRow.assignment_sequence || "",
+        owner_epoch_id: actionRow.owner_epoch_id || "",
+        agent_id_snapshot: actionRow.agent_id_snapshot || "",
+        policy_snapshot_id: actionRow.policy_snapshot_id || "",
+        gateway_id: actionRow.gateway_id || "",
+        action_attempt_id: actionAttemptId,
+        gateway_context: gatewayContext,
+        selected_action: selectedAction,
+        dispatch_claimed_ts_utc: claimedTsUtc,
+        provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+    });
+
     console.log("gateway_action_claimed", {
         short_code: shortCode,
         trace_id: actionRow.trace_id || "",
@@ -577,7 +683,9 @@ exports.handler = async function (event) {
     const data = await processAction({
         shortCode,
         selectedAction,
-        gatewayContext
+        gatewayContext,
+        actionRow,
+        actionAttemptId
     });
 
     console.log("gateway_make_handoff_result", {
@@ -593,6 +701,24 @@ exports.handler = async function (event) {
     });
 
       if (!data.ok) {
+        instrumentAnalyticsBoundary(context, {
+          boundary: "ACTION_PROCESSING_FAILED",
+          candidate_record_types: ["PROCESSING_FAILED"],
+          source_correlation_id: actionRow.trace_id || "",
+          client_id: clientId,
+          lead_id: leadId,
+          lifecycle_id: actionRow.lifecycle_id || "",
+          assignment_id: actionRow.assignment_id || "",
+          assignment_sequence: actionRow.assignment_sequence || "",
+          owner_epoch_id: actionRow.owner_epoch_id || "",
+          agent_id_snapshot: actionRow.agent_id_snapshot || "",
+          policy_snapshot_id: actionRow.policy_snapshot_id || "",
+          gateway_id: actionRow.gateway_id || "",
+          action_attempt_id: actionAttemptId,
+          selected_action: selectedAction,
+          processing_stage: "ACTION_PROCESSING",
+          provider_binding_status: "PENDING_ACTION_ASSIGNMENT_OWNER_ATTEMPT_AND_SEQUENCE_BINDING"
+        });
         return {
           statusCode: 200,
           headers: noCacheHeaders,
@@ -871,6 +997,14 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
     };
 
   } catch (err) {
+    instrumentAnalyticsBoundary(context, {
+      boundary: "ACTION_PROCESSING_FAILED",
+      candidate_record_types: ["PROCESSING_FAILED"],
+      processing_stage: "ACTION_PROCESSING",
+      failure_category: isSheetsQuotaOrTransientError(err) ? "TRANSIENT_OPERATIONAL_DEPENDENCY" : "UNHANDLED_OPERATIONAL_FAILURE",
+      provider_binding_status: "PENDING_CORRELATION_AND_SEQUENCE_BINDING"
+    });
+
     if (isSheetsQuotaOrTransientError(err)) {
       console.error("gateway_error", {
         safe_error_category: "SHEETS_TEMPORARY_UNAVAILABLE",
