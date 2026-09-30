@@ -20,6 +20,14 @@ const INTAKE_PROJECTION_MODE = String(
 const INTAKE_AUDIT_SPREADSHEET_ID = String(
   process.env.EP_NETLIFY_INTAKE_AUDIT_SPREADSHEET_ID || ""
 ).trim();
+const INTAKE_OBLIGATION_PHASE = Object.freeze({
+  // Nonterminal records contain correlation identifiers only and never
+  // authorize lifecycle or audit projection.
+  PRE_COMMIT: "PRE_COMMIT",
+  CORE_COMMITTED_SMS_READY: "CORE_COMMITTED_SMS_READY",
+  // This terminal phase alone may contain the complete repair evidence.
+  PROJECTION_READY: "PROJECTION_READY"
+});
 
 let intakeObligationStorePromise = null;
 let intakeTestRuntime = null;
@@ -321,14 +329,21 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT" && duplicateLeadId) {
       const obligationStore = await getIntakeObligationStore();
       const eventId = deriveIntakeLifecycleEventId(repairContext.committed_intake);
       const obligation = await obligationStore.get(eventId);
-      const committedIntake = obligation?.committed_intake || repairContext.committed_intake;
+      const recovery = recoverProjectionReadyIntake(obligation);
 
-      duplicateProjection = await runDirectIntakeProjection({
-        sheets,
-        committedIntake,
-        leadDataSpreadsheetId: client.lead_data_spreadsheet_id,
-        obligationStore
-      });
+      if (obligation && !recovery.recoverable) {
+        duplicateProjection = projectionRepairRequired(recovery.error_code, {
+          lifecycle: { status: "NOT_ATTEMPTED" },
+          audit: { status: "NOT_ATTEMPTED" }
+        });
+      } else {
+        duplicateProjection = await runDirectIntakeProjection({
+          sheets,
+          committedIntake: recovery.committed_intake || repairContext.committed_intake,
+          leadDataSpreadsheetId: client.lead_data_spreadsheet_id,
+          obligationStore
+        });
+      }
     }
   } catch (error) {
     duplicateProjection = projectionRepairRequired(
@@ -613,7 +628,7 @@ console.log("intake_before_routing", {
   routing_strategy: routingStrategy
 });
 
-const assignmentResult = routeByStrategy({
+const assignmentResult = executeAssignment({
   routing_strategy: routingStrategy,
   agents: eligibleAgents,
   routing_pointer: routingPointer
@@ -654,28 +669,19 @@ if (!Number.isFinite(reminderDelayMinutes) || reminderDelayMinutes <= 0) {
 const nextActionDue = new Date(Date.now() + reminderDelayMinutes * 60000).toISOString();
 let directObligationStore = null;
 let directCommittedIntake = null;
+let directProjectionIdentity = null;
 
 if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
   directObligationStore = await getIntakeObligationStore();
-  directCommittedIntake = buildDirectCommittedIntake({
-    leadPayload,
+  directProjectionIdentity = {
     trace_id,
     lead_id: leadId,
-    client_id: client.client_id,
-    assigned_agent_id: assignmentResult.assigned_agent_id,
-    source_system,
-    source_detail: source_primary_key_value,
-    created_ts_utc: nowUtc,
-    assignment_ts_utc: nowUtc,
-    reminder_due_ts_utc: nextActionDue,
-    sms_status: isSmsSendingEnabled()
-      ? "ATTEMPTED_OUTCOME_UNKNOWN"
-      : "NOT_ATTEMPTED"
-  });
+    client_id: client.client_id
+  };
   await persistIntakeProjectionObligation({
     obligationStore: directObligationStore,
-    committedIntake: directCommittedIntake,
-    phase: "PRE_COMMIT"
+    identity: directProjectionIdentity,
+    phase: INTAKE_OBLIGATION_PHASE.PRE_COMMIT
   });
 }
 
@@ -844,22 +850,31 @@ console.log("intake_before_sms_send", {
   phone: assignedAgent.agent_phone
 });
 
-if (directCommittedIntake) {
+if (directObligationStore) {
+  directCommittedIntake = buildDirectCommittedIntake({
+    leadPayload,
+    trace_id,
+    lead_id: leadId,
+    client_id: client.client_id,
+    assigned_agent_id: assignmentResult.assigned_agent_id,
+    source_system,
+    source_detail: source_primary_key_value,
+    created_ts_utc: nowUtc,
+    assignment_ts_utc: nowUtc,
+    reminder_due_ts_utc: nextActionDue,
+    sms_status: "NOT_ATTEMPTED"
+  });
   directCommittedIntake = {
     ...directCommittedIntake,
     action_link_count: Object.keys(actionLinks).length,
-    sms_status: isSmsSendingEnabled()
-      ? "ATTEMPTED_OUTCOME_UNKNOWN"
-      : "NOT_ATTEMPTED",
-    sms_error_code: isSmsSendingEnabled() ? "" : "SMS_DISABLED",
-    sms_error_message: isSmsSendingEnabled()
-      ? ""
-      : "SMS sending disabled (ENABLE_SMS_SEND != true)"
+    sms_status: "NOT_ATTEMPTED",
+    sms_error_code: "",
+    sms_error_message: ""
   };
   await persistIntakeProjectionObligationBestEffort({
     obligationStore: directObligationStore,
-    committedIntake: directCommittedIntake,
-    phase: "CORE_COMMITTED_SMS_READY",
+    identity: directProjectionIdentity,
+    phase: INTAKE_OBLIGATION_PHASE.CORE_COMMITTED_SMS_READY,
     trace_id,
     lead_id: leadId
   });
@@ -879,7 +894,7 @@ try {
     await persistIntakeProjectionObligationBestEffort({
       obligationStore: directObligationStore,
       committedIntake: directCommittedIntake,
-      phase: "CORE_COMMITTED_SMS_FAILED",
+      phase: INTAKE_OBLIGATION_PHASE.PROJECTION_READY,
       trace_id,
       lead_id: leadId
     });
@@ -927,7 +942,7 @@ if (directCommittedIntake) {
   await persistIntakeProjectionObligationBestEffort({
     obligationStore: directObligationStore,
     committedIntake: directCommittedIntake,
-    phase: "CORE_COMMITTED_SMS_RECORDED",
+    phase: INTAKE_OBLIGATION_PHASE.PROJECTION_READY,
     trace_id,
     lead_id: leadId
   });
@@ -1177,6 +1192,13 @@ routing_pointer
 throw new Error(`Unsupported routing_strategy: ${normalizedStrategy}`);
 }
 
+function executeAssignment(args) {
+  if (intakeTestRuntime?.onAssignmentExecution) {
+    intakeTestRuntime.onAssignmentExecution(args);
+  }
+  return routeByStrategy(args);
+}
+
 function routeWeightedInterleaved({ agents, routing_pointer }) {
 const activeAgents = agents.filter(agent => {
 return String(agent.agent_status || "").trim() === "ACTIVE";
@@ -1286,7 +1308,17 @@ async function sendSmsIfEnabled({ to, message }) {
   const from = process.env.TWILIO_FROM_PHONE;
 
   if (!accountSid || !authToken || !from) {
-    throw new Error("Missing Twilio environment variables.");
+    if (!intakeTestRuntime?.smsSender) {
+      throw new Error("Missing Twilio environment variables.");
+    }
+  }
+
+  if (intakeTestRuntime?.smsSender) {
+    return intakeTestRuntime.smsSender({
+      body: finalMessage,
+      from,
+      to
+    });
   }
 
   const client = twilio(accountSid, authToken);
@@ -1373,17 +1405,39 @@ function buildDirectCommittedIntake({
 
 async function persistIntakeProjectionObligation({
   obligationStore,
+  identity,
   committedIntake,
   phase
 }) {
-  const eventId = deriveIntakeLifecycleEventId(committedIntake);
+  if (!Object.values(INTAKE_OBLIGATION_PHASE).includes(phase)) {
+    const error = new Error(`Unsupported intake obligation phase: ${phase}`);
+    error.code = "INVALID_INTAKE_OBLIGATION_PHASE";
+    throw error;
+  }
+
+  const evidence = committedIntake || identity;
+  const eventId = deriveIntakeLifecycleEventId(evidence);
+  const isProjectionReady = phase === INTAKE_OBLIGATION_PHASE.PROJECTION_READY;
+
+  if (isProjectionReady && committedIntake?.audit_evidence_complete !== true) {
+    const error = new Error("Projection-ready obligation requires complete audit evidence.");
+    error.code = "INVALID_PROJECTION_READY_EVIDENCE";
+    throw error;
+  }
+
   const obligation = {
-    schema_version: 1,
+    schema_version: 2,
     event_id: eventId,
     phase,
-    committed_intake: committedIntake,
+    client_id: String(evidence.client_id || ""),
+    lead_id: String(evidence.lead_id || ""),
+    trace_id: String(evidence.trace_id || ""),
     updated_ts_utc: new Date().toISOString()
   };
+
+  if (isProjectionReady) {
+    obligation.committed_intake = committedIntake;
+  }
 
   await withBoundedRetry(
     () => obligationStore.set(eventId, obligation),
@@ -1394,6 +1448,7 @@ async function persistIntakeProjectionObligation({
 
 async function persistIntakeProjectionObligationBestEffort({
   obligationStore,
+  identity,
   committedIntake,
   phase,
   trace_id,
@@ -1402,6 +1457,7 @@ async function persistIntakeProjectionObligationBestEffort({
   try {
     return await persistIntakeProjectionObligation({
       obligationStore,
+      identity,
       committedIntake,
       phase
     });
@@ -1414,6 +1470,45 @@ async function persistIntakeProjectionObligationBestEffort({
     });
     return null;
   }
+}
+
+function recoverProjectionReadyIntake(obligation) {
+  if (!obligation) {
+    return { recoverable: false, committed_intake: null, error_code: "" };
+  }
+
+  if (obligation.phase !== INTAKE_OBLIGATION_PHASE.PROJECTION_READY) {
+    return {
+      recoverable: false,
+      committed_intake: null,
+      error_code: "OBLIGATION_PHASE_NOT_PROJECTION_READY"
+    };
+  }
+
+  if (obligation.schema_version !== 2) {
+    return {
+      recoverable: false,
+      committed_intake: null,
+      error_code: "PROJECTION_READY_SCHEMA_INVALID"
+    };
+  }
+
+  if (
+    !obligation.committed_intake ||
+    obligation.committed_intake.audit_evidence_complete !== true
+  ) {
+    return {
+      recoverable: false,
+      committed_intake: null,
+      error_code: "PROJECTION_READY_EVIDENCE_INVALID"
+    };
+  }
+
+  return {
+    recoverable: true,
+    committed_intake: obligation.committed_intake,
+    error_code: ""
+  };
 }
 
 function projectionNotApplicable(reason) {
@@ -2171,10 +2266,12 @@ async function appendSystemEvent({ sheets, event_id, event_timestamp, client_id,
 }
 
 exports._test = {
+  INTAKE_OBLIGATION_PHASE,
   buildDirectCommittedIntake,
   loadCommittedIntakeByLeadId,
   persistIntakeProjectionObligation,
   projectionNotApplicable,
+  recoverProjectionReadyIntake,
   recordProjectionRepairEvent,
   runDirectIntakeProjection,
   runLegacyMakeIntakeHandoff,

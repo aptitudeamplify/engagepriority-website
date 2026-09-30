@@ -84,7 +84,7 @@ function leadPayload() {
 
 function createObligationStore() {
   const records = new Map();
-  const calls = { get: 0, set: 0, delete: 0 };
+  const calls = { get: 0, set: 0, delete: 0, setValues: [] };
   return {
     records,
     calls,
@@ -94,7 +94,9 @@ function createObligationStore() {
     },
     async set(key, value) {
       calls.set += 1;
-      records.set(key, JSON.parse(JSON.stringify(value)));
+      const copy = JSON.parse(JSON.stringify(value));
+      calls.setValues.push(copy);
+      records.set(key, copy);
     },
     async delete(key) {
       calls.delete += 1;
@@ -350,6 +352,36 @@ function countRange(calls, prefix) {
   return calls.append.filter(call => call.range.startsWith(prefix)).length;
 }
 
+function createConsequenceInstrumentation() {
+  const observed = {
+    assignment_executions: 0,
+    sms_sends: 0
+  };
+
+  return {
+    observed,
+    onAssignmentExecution() {
+      observed.assignment_executions += 1;
+    },
+    async smsSender() {
+      observed.sms_sends += 1;
+      return { sent: true, sid: "SM-SYNTHETIC", final_message: "synthetic" };
+    }
+  };
+}
+
+function observedCoreConsequences(runtime, instrumentation) {
+  return {
+    assignment_executions: instrumentation.observed.assignment_executions,
+    routing_state_advancements:
+      runtime.calls.update.filter(call => call.range === "RoutingState!B2").length,
+    leadlog_creations: countRange(runtime.calls, "LeadLog_Active!"),
+    gateway_creations: countRange(runtime.calls, "ActionLinkMap!"),
+    reminder_creations: countRange(runtime.calls, "ReminderQueue!"),
+    sms_sends: instrumentation.observed.sms_sends
+  };
+}
+
 function createProjectionSheets() {
   const lifecycleRows = [];
   const auditRows = [];
@@ -415,7 +447,13 @@ function createProjectionSheets() {
 test("U01-001 handler commits one direct lifecycle and audit projection without repeating core consequences", async () => {
   const runtime = createFreshSheets();
   const obligationStore = createObligationStore();
-  intake._test.setRuntime({ sheets: runtime.sheets, obligationStore });
+  const instrumentation = createConsequenceInstrumentation();
+  intake._test.setRuntime({
+    sheets: runtime.sheets,
+    obligationStore,
+    onAssignmentExecution: instrumentation.onAssignmentExecution,
+    smsSender: instrumentation.smsSender
+  });
 
   const response = await intake.handler(leadPayload(), {});
   const body = JSON.parse(response.body);
@@ -429,8 +467,24 @@ test("U01-001 handler commits one direct lifecycle and audit projection without 
   assert.equal(countRange(runtime.calls, "NetlifyIntakeAudit!"), 1);
   assert.equal(runtime.calls.update.filter(call => call.range === "RoutingState!B2").length, 1);
   assert.equal(body.sms_send_result.sent, false);
+  assert.equal(instrumentation.observed.assignment_executions, 1);
+  assert.equal(instrumentation.observed.sms_sends, 0);
   assert.ok(obligationStore.calls.set >= 3);
   assert.equal(obligationStore.calls.delete, 1);
+
+  const preCommit = obligationStore.calls.setValues[0];
+  assert.equal(preCommit.phase, "PRE_COMMIT");
+  assert.equal(preCommit.committed_intake, undefined);
+  assert.equal(JSON.stringify(preCommit).includes("Synthetic Person"), false);
+  assert.equal(JSON.stringify(preCommit).includes("synthetic@example.invalid"), false);
+  assert.equal(JSON.stringify(preCommit).includes("+12815550101"), false);
+  assert.equal(obligationStore.calls.setValues[1].phase, "CORE_COMMITTED_SMS_READY");
+  assert.equal(obligationStore.calls.setValues[1].committed_intake, undefined);
+  assert.equal(obligationStore.calls.setValues[2].phase, "PROJECTION_READY");
+  assert.equal(
+    obligationStore.calls.setValues[2].committed_intake.audit_evidence_complete,
+    true
+  );
 
   const auditRow = runtime.calls.append.find(call =>
     call.range.startsWith("NetlifyIntakeAudit!")
@@ -439,6 +493,39 @@ test("U01-001 handler commits one direct lifecycle and audit projection without 
   assert.equal(auditRow[11], 1);
   assert.equal(auditRow[15], "NOT_ATTEMPTED");
   assert.equal(auditRow[17], "SMS_DISABLED");
+});
+
+test("SMS-enabled fresh intake records SENT only after the provider call completes", async t => {
+  const previousSmsState = process.env.ENABLE_SMS_SEND;
+  process.env.ENABLE_SMS_SEND = "true";
+  t.after(() => {
+    process.env.ENABLE_SMS_SEND = previousSmsState;
+  });
+  const runtime = createFreshSheets();
+  const obligationStore = createObligationStore();
+  const instrumentation = createConsequenceInstrumentation();
+  intake._test.setRuntime({
+    sheets: runtime.sheets,
+    obligationStore,
+    onAssignmentExecution: instrumentation.onAssignmentExecution,
+    smsSender: instrumentation.smsSender
+  });
+
+  const response = await intake.handler(leadPayload(), {});
+  const body = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(body.sms_send_result.sent, true);
+  assert.equal(instrumentation.observed.sms_sends, 1);
+  assert.equal(obligationStore.calls.setValues[1].phase, "CORE_COMMITTED_SMS_READY");
+  assert.equal(obligationStore.calls.setValues[1].committed_intake, undefined);
+  assert.equal(obligationStore.calls.setValues[2].phase, "PROJECTION_READY");
+  assert.equal(obligationStore.calls.setValues[2].committed_intake.sms_status, "SENT");
+
+  const auditRow = runtime.calls.append.find(call =>
+    call.range.startsWith("NetlifyIntakeAudit!")
+  ).requestBody.values[0];
+  assert.equal(auditRow[15], "SENT");
 });
 
 test("U01-011 direct audit facts do not invent an absent submission timestamp", () => {
@@ -464,10 +551,21 @@ test("U01-011 direct audit facts do not invent an absent submission timestamp", 
   assert.equal(committed.sms_status, "NOT_ATTEMPTED");
 });
 
-test("U01-014 after-hours duplicate repair produces no ordinary projection or repeated core consequence", async () => {
+test("U01-014 after-hours duplicate repair produces no ordinary projection or repeated core consequence", async t => {
+  const previousSmsState = process.env.ENABLE_SMS_SEND;
+  process.env.ENABLE_SMS_SEND = "true";
+  t.after(() => {
+    process.env.ENABLE_SMS_SEND = previousSmsState;
+  });
   const runtime = createAfterHoursDuplicateSheets();
   const obligationStore = createObligationStore();
-  intake._test.setRuntime({ sheets: runtime.sheets, obligationStore });
+  const instrumentation = createConsequenceInstrumentation();
+  intake._test.setRuntime({
+    sheets: runtime.sheets,
+    obligationStore,
+    onAssignmentExecution: instrumentation.onAssignmentExecution,
+    smsSender: instrumentation.smsSender
+  });
 
   const response = await intake.handler(leadPayload(), {});
   const body = JSON.parse(response.body);
@@ -477,14 +575,8 @@ test("U01-014 after-hours duplicate repair produces no ordinary projection or re
   assert.equal(body.post_commit_projection.status, "PROJECTION_NOT_APPLICABLE");
   assert.equal(body.post_commit_projection.reason, "AFTER_HOURS_HELD_LEAD");
 
-  const forbiddenRepeatedConsequences = {
-    assignment_executions: runtime.calls.update.filter(call => call.range === "RoutingState!B2").length,
-    routing_state_advancements: runtime.calls.update.filter(call => call.range === "RoutingState!B2").length,
-    leadlog_creations: countRange(runtime.calls, "LeadLog_Active!"),
-    gateway_creations: countRange(runtime.calls, "ActionLinkMap!"),
-    reminder_creations: countRange(runtime.calls, "ReminderQueue!"),
-    sms_sends: 0
-  };
+  const forbiddenRepeatedConsequences =
+    observedCoreConsequences(runtime, instrumentation);
   assert.deepEqual(forbiddenRepeatedConsequences, {
     assignment_executions: 0,
     routing_state_advancements: 0,
@@ -495,6 +587,107 @@ test("U01-014 after-hours duplicate repair produces no ordinary projection or re
   });
   assert.equal(countRange(runtime.calls, "LeadLifecycleLog!"), 0);
   assert.equal(obligationStore.calls.get, 0);
+});
+
+test("stale pre-SMS obligation phases fail closed without projecting or repeating consequences", async t => {
+  const previousSmsState = process.env.ENABLE_SMS_SEND;
+  process.env.ENABLE_SMS_SEND = "true";
+  t.after(() => {
+    process.env.ENABLE_SMS_SEND = previousSmsState;
+  });
+
+  for (const phase of ["PRE_COMMIT", "CORE_COMMITTED_SMS_READY"]) {
+    const runtime = createOrdinaryDuplicateSheets();
+    const obligationStore = createObligationStore();
+    const instrumentation = createConsequenceInstrumentation();
+    const obligation = await intake._test.persistIntakeProjectionObligation({
+      obligationStore,
+      identity: {
+        client_id: "CLIENT-1",
+        lead_id: "LEAD-ORDINARY",
+        trace_id: "TRACE-ORDINARY"
+      },
+      phase
+    });
+
+    assert.equal(obligation.committed_intake, undefined);
+    assert.equal(JSON.stringify(obligation).includes("Synthetic Person"), false);
+    assert.equal(JSON.stringify(obligation).includes("synthetic@example.invalid"), false);
+    assert.equal(JSON.stringify(obligation).includes("+12815550101"), false);
+
+    intake._test.setRuntime({
+      sheets: runtime.sheets,
+      obligationStore,
+      onAssignmentExecution: instrumentation.onAssignmentExecution,
+      smsSender: instrumentation.smsSender
+    });
+
+    const response = await intake.handler(leadPayload(), {});
+    const body = JSON.parse(response.body);
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.status, "DUPLICATE_LEAD");
+    assert.equal(body.post_commit_projection.status, "PROJECTION_REPAIR_REQUIRED");
+    assert.equal(
+      body.post_commit_projection.error.code,
+      "OBLIGATION_PHASE_NOT_PROJECTION_READY"
+    );
+    assert.equal(countRange(runtime.calls, "LeadLifecycleLog!"), 0);
+    assert.equal(countRange(runtime.calls, "NetlifyIntakeAudit!"), 0);
+    assert.deepEqual(observedCoreConsequences(runtime, instrumentation), {
+      assignment_executions: 0,
+      routing_state_advancements: 0,
+      leadlog_creations: 0,
+      gateway_creations: 0,
+      reminder_creations: 0,
+      sms_sends: 0
+    });
+  }
+});
+
+test("malformed projection-ready evidence fails closed", async () => {
+  const runtime = createOrdinaryDuplicateSheets();
+  const obligationStore = createObligationStore();
+  const instrumentation = createConsequenceInstrumentation();
+  const obligation = await intake._test.persistIntakeProjectionObligation({
+    obligationStore,
+    identity: {
+      client_id: "CLIENT-1",
+      lead_id: "LEAD-ORDINARY",
+      trace_id: "TRACE-ORDINARY"
+    },
+    phase: "PRE_COMMIT"
+  });
+  await obligationStore.set(obligation.event_id, {
+    ...obligation,
+    phase: "PROJECTION_READY"
+  });
+
+  intake._test.setRuntime({
+    sheets: runtime.sheets,
+    obligationStore,
+    onAssignmentExecution: instrumentation.onAssignmentExecution,
+    smsSender: instrumentation.smsSender
+  });
+
+  const response = await intake.handler(leadPayload(), {});
+  const body = JSON.parse(response.body);
+
+  assert.equal(body.post_commit_projection.status, "PROJECTION_REPAIR_REQUIRED");
+  assert.equal(
+    body.post_commit_projection.error.code,
+    "PROJECTION_READY_EVIDENCE_INVALID"
+  );
+  assert.equal(countRange(runtime.calls, "LeadLifecycleLog!"), 0);
+  assert.equal(countRange(runtime.calls, "NetlifyIntakeAudit!"), 0);
+  assert.deepEqual(observedCoreConsequences(runtime, instrumentation), {
+    assignment_executions: 0,
+    routing_state_advancements: 0,
+    leadlog_creations: 0,
+    gateway_creations: 0,
+    reminder_creations: 0,
+    sms_sends: 0
+  });
 });
 
 test("U01-003/U01-004/U01-005/U01-011/U01-012 durable obligation repairs truthful audit only and converges", async () => {
@@ -519,7 +712,7 @@ test("U01-003/U01-004/U01-005/U01-011/U01-012 durable obligation repairs truthfu
   const obligation = await intake._test.persistIntakeProjectionObligation({
     obligationStore,
     committedIntake,
-    phase: "CORE_COMMITTED_SMS_RECORDED"
+    phase: "PROJECTION_READY"
   });
 
   const first = await intake._test.runDirectIntakeProjection({
@@ -555,20 +748,17 @@ test("U01-003/U01-004/U01-005/U01-011/U01-012 durable obligation repairs truthfu
   assert.equal(audit[15], "NOT_ATTEMPTED");
   assert.equal(audit[17], "SMS_DISABLED");
 
-  const forbiddenRepeatedConsequences = {
-    assignment_executions: 0,
-    routing_state_advancements: 0,
-    leadlog_creations: 0,
-    gateway_creations: 0,
-    reminder_creations: 0,
-    sms_sends: 0
-  };
-  assert.deepEqual(Object.values(forbiddenRepeatedConsequences), [0, 0, 0, 0, 0, 0]);
 });
 
-test("U01-002/U01-004/U01-005 ordinary duplicate handler repairs once with all six core counters at zero", async () => {
+test("U01-002/U01-004/U01-005 ordinary duplicate handler repairs once with all six observed core consequences at zero", async t => {
+  const previousSmsState = process.env.ENABLE_SMS_SEND;
+  process.env.ENABLE_SMS_SEND = "true";
+  t.after(() => {
+    process.env.ENABLE_SMS_SEND = previousSmsState;
+  });
   const runtime = createOrdinaryDuplicateSheets();
   const obligationStore = createObligationStore();
+  const instrumentation = createConsequenceInstrumentation();
   const committedIntake = intake._test.buildDirectCommittedIntake({
     leadPayload: JSON.parse(leadPayload().body),
     trace_id: "TRACE-ORDINARY",
@@ -585,9 +775,14 @@ test("U01-002/U01-004/U01-005 ordinary duplicate handler repairs once with all s
   await intake._test.persistIntakeProjectionObligation({
     obligationStore,
     committedIntake,
-    phase: "CORE_COMMITTED_SMS_RECORDED"
+    phase: "PROJECTION_READY"
   });
-  intake._test.setRuntime({ sheets: runtime.sheets, obligationStore });
+  intake._test.setRuntime({
+    sheets: runtime.sheets,
+    obligationStore,
+    onAssignmentExecution: instrumentation.onAssignmentExecution,
+    smsSender: instrumentation.smsSender
+  });
 
   const repairResponse = await intake.handler(leadPayload(), {});
   const repairBody = JSON.parse(repairResponse.body);
@@ -608,14 +803,8 @@ test("U01-002/U01-004/U01-005 ordinary duplicate handler repairs once with all s
     0
   );
 
-  const forbiddenRepeatedConsequences = {
-    assignment_executions: runtime.calls.update.filter(call => call.range === "RoutingState!B2").length,
-    routing_state_advancements: runtime.calls.update.filter(call => call.range === "RoutingState!B2").length,
-    leadlog_creations: countRange(runtime.calls, "LeadLog_Active!"),
-    gateway_creations: countRange(runtime.calls, "ActionLinkMap!"),
-    reminder_creations: countRange(runtime.calls, "ReminderQueue!"),
-    sms_sends: 0
-  };
+  const forbiddenRepeatedConsequences =
+    observedCoreConsequences(runtime, instrumentation);
   assert.deepEqual(forbiddenRepeatedConsequences, {
     assignment_executions: 0,
     routing_state_advancements: 0,
