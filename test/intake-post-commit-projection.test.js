@@ -10,6 +10,7 @@ const {
   projectCommittedIntake,
   withBoundedRetry
 } = require("../netlify/functions/_shared/intake-post-commit-projection");
+const controlTowerData = require("../netlify/functions/control-tower-data");
 
 function committedIntake(overrides = {}) {
   return {
@@ -66,7 +67,7 @@ function memoryStores({ lifecycle = [], audit = [] } = {}) {
   };
 }
 
-test("U01-001 fresh committed intake writes one lifecycle event and one audit row", async () => {
+test("projection foundation writes one lifecycle event and one audit row", async () => {
   const stores = memoryStores();
   const result = await projectCommittedIntake({
     committedIntake: committedIntake(),
@@ -80,7 +81,7 @@ test("U01-001 fresh committed intake writes one lifecycle event and one audit ro
   assert.equal(stores.audit.length, 1);
 });
 
-test("U01-002 replay performs no duplicate append", async () => {
+test("projection foundation replay performs no duplicate append", async () => {
   const stores = memoryStores();
   const args = {
     committedIntake: committedIntake(),
@@ -96,7 +97,7 @@ test("U01-002 replay performs no duplicate append", async () => {
   assert.equal(stores.audit.length, 1);
 });
 
-test("U01-003 durable intake commit identity yields a stable event id", () => {
+test("U01-007 policy-controlled intake commit identity yields a stable event id", () => {
   const first = deriveIntakeLifecycleEventId(committedIntake());
   const second = deriveIntakeLifecycleEventId(
     committedIntake({ trace_id: "A-DIFFERENT-TRACE" })
@@ -104,7 +105,7 @@ test("U01-003 durable intake commit identity yields a stable event id", () => {
   assert.equal(first, second);
 });
 
-test("U01-004 legacy identity tuple yields a stable event id", () => {
+test("U01-006 legacy identity tuple yields a stable event id", () => {
   const input = committedIntake({ intake_commit_id: "" });
   assert.equal(
     deriveIntakeLifecycleEventId(input),
@@ -112,7 +113,7 @@ test("U01-004 legacy identity tuple yields a stable event id", () => {
   );
 });
 
-test("U01-005 lifecycle event uses accepted intake semantics", () => {
+test("lifecycle event uses accepted intake semantics", () => {
   const event = buildIntakeLifecycleEvent(committedIntake());
   assert.deepEqual(
     {
@@ -132,7 +133,7 @@ test("U01-005 lifecycle event uses accepted intake semantics", () => {
   );
 });
 
-test("U01-006 audit projection preserves the complete 24-field disposition", () => {
+test("audit projection preserves the complete 24-field disposition", () => {
   const audit = buildIntakeAuditRecord(committedIntake());
   assert.deepEqual(Object.keys(audit), [
     "event_type",
@@ -162,7 +163,7 @@ test("U01-006 audit projection preserves the complete 24-field disposition", () 
   ]);
 });
 
-test("U01-007 projection does not mutate committed intake facts", async () => {
+test("projection does not mutate committed intake facts", async () => {
   const input = Object.freeze(committedIntake());
   const before = JSON.stringify(input);
   const stores = memoryStores();
@@ -174,7 +175,7 @@ test("U01-007 projection does not mutate committed intake facts", async () => {
   assert.equal(JSON.stringify(input), before);
 });
 
-test("U01-008 missing durable identity fails closed before writes", async () => {
+test("missing durable identity fails closed before writes", async () => {
   const stores = memoryStores();
   await assert.rejects(
     projectCommittedIntake({
@@ -188,7 +189,7 @@ test("U01-008 missing durable identity fails closed before writes", async () => 
   assert.equal(stores.audit.length, 0);
 });
 
-test("U01-009 transient reads retry and then succeed", async () => {
+test("U01-016 transient reads retry and then succeed", async () => {
   let attempts = 0;
   const value = await withBoundedRetry(
     async () => {
@@ -206,7 +207,7 @@ test("U01-009 transient reads retry and then succeed", async () => {
   assert.equal(attempts, 3);
 });
 
-test("U01-010 transient failures stop at the configured retry bound", async () => {
+test("U01-016 transient failures stop at the configured retry bound", async () => {
   let attempts = 0;
   await assert.rejects(
     withBoundedRetry(
@@ -223,7 +224,7 @@ test("U01-010 transient failures stop at the configured retry bound", async () =
   assert.equal(attempts, 3);
 });
 
-test("U01-011 permanent failures are not retried", async () => {
+test("U01-017 permanent failures are not retried", async () => {
   let attempts = 0;
   await assert.rejects(
     withBoundedRetry(async () => {
@@ -237,7 +238,7 @@ test("U01-011 permanent failures are not retried", async () => {
   assert.equal(attempts, 1);
 });
 
-test("U01-012 lifecycle failure records repair state and does not write audit", async () => {
+test("lifecycle failure records repair state and does not write audit", async () => {
   let auditWrites = 0;
   const result = await projectCommittedIntake({
     committedIntake: committedIntake(),
@@ -259,7 +260,7 @@ test("U01-012 lifecycle failure records repair state and does not write audit", 
   assert.equal(auditWrites, 0);
 });
 
-test("U01-013 audit failure preserves committed lifecycle and records repair state", async () => {
+test("audit failure preserves committed lifecycle and records repair state", async () => {
   const stores = memoryStores();
   stores.auditStore.append = async () => {
     const error = new Error("invalid audit schema");
@@ -276,7 +277,7 @@ test("U01-013 audit failure preserves committed lifecycle and records repair sta
   assert.equal(result.core_intake_status, "COMMITTED");
 });
 
-test("U01-014 replay repairs only the missing audit projection", async () => {
+test("replay repairs only the missing audit projection", async () => {
   const input = committedIntake();
   const event = buildIntakeLifecycleEvent(input);
   const stores = memoryStores({ lifecycle: [event] });
@@ -291,7 +292,7 @@ test("U01-014 replay repairs only the missing audit projection", async () => {
   assert.equal(stores.audit.length, 1);
 });
 
-test("U01-015 missing required audit store fails safely after lifecycle", async () => {
+test("missing required audit store fails safely after lifecycle", async () => {
   const stores = memoryStores();
   const result = await projectCommittedIntake({
     committedIntake: committedIntake(),
@@ -303,26 +304,123 @@ test("U01-015 missing required audit store fails safely after lifecycle", async 
   assert.equal(result.repair_required, true);
 });
 
-test("U01-016 concurrent appends retain one logical lifecycle identity", async () => {
-  const lifecycle = [];
-  const stores = memoryStores({ lifecycle });
-  const input = committedIntake();
+test("U01-008 different clients project independently when one client fails", async () => {
+  const healthy = memoryStores();
+  const failingLifecycleStore = {
+    async findByEventId() { return null; },
+    async append() {
+      const error = new Error("client workbook unavailable");
+      error.status = 400;
+      throw error;
+    }
+  };
+
+  const [failed, succeeded] = await Promise.all([
+    projectCommittedIntake({
+      committedIntake: committedIntake({
+        intake_commit_id: "IC-FAIL",
+        client_id: "CLIENT-FAIL",
+        lead_id: "LEAD-FAIL",
+        trace_id: "TRACE-FAIL"
+      }),
+      lifecycleStore: failingLifecycleStore,
+      auditStore: memoryStores().auditStore
+    }),
+    projectCommittedIntake({
+      committedIntake: committedIntake({
+        intake_commit_id: "IC-HEALTHY",
+        client_id: "CLIENT-HEALTHY",
+        lead_id: "LEAD-HEALTHY",
+        trace_id: "TRACE-HEALTHY"
+      }),
+      lifecycleStore: healthy.lifecycleStore,
+      auditStore: healthy.auditStore
+    })
+  ]);
+
+  assert.equal(failed.repair_required, true);
+  assert.equal(succeeded.status, "PROJECTION_COMMITTED");
+  assert.equal(healthy.lifecycle.length, 1);
+  assert.equal(healthy.audit.length, 1);
+});
+
+test("U01-009 same client distinct leads retain distinct logical identities", async () => {
+  const stores = memoryStores();
+  const first = committedIntake({
+    intake_commit_id: "IC-A",
+    lead_id: "LEAD-A",
+    trace_id: "TRACE-A"
+  });
+  const second = committedIntake({
+    intake_commit_id: "IC-B",
+    lead_id: "LEAD-B",
+    trace_id: "TRACE-B"
+  });
+
   await Promise.all([
     projectCommittedIntake({
-      committedIntake: input,
+      committedIntake: first,
       lifecycleStore: stores.lifecycleStore,
       auditStore: stores.auditStore
     }),
     projectCommittedIntake({
-      committedIntake: input,
+      committedIntake: second,
       lifecycleStore: stores.lifecycleStore,
       auditStore: stores.auditStore
     })
   ]);
-  assert.equal(new Set(lifecycle.map(record => record.event_id)).size, 1);
+
+  assert.equal(stores.lifecycle.length, 2);
+  assert.notEqual(stores.lifecycle[0].event_id, stores.lifecycle[1].event_id);
 });
 
-test("U01-017 projection accepts only lifecycle and audit store capabilities", async () => {
+test("U01-010 simultaneous physical appends remain one downstream logical event", async () => {
+  const lifecycle = [];
+  const audit = [];
+  let readCount = 0;
+  let releaseReads;
+  const readsComplete = new Promise(resolve => { releaseReads = resolve; });
+  const lifecycleStore = {
+    async findByEventId() {
+      readCount += 1;
+      if (readCount === 2) {
+        releaseReads();
+      }
+      await readsComplete;
+      return null;
+    },
+    async append(record) {
+      lifecycle.push({ ...record });
+    }
+  };
+  const auditStore = {
+    async findByLogicalIdentity(record) {
+      return audit.find(candidate => candidate.trace_id === record.trace_id) || null;
+    },
+    async append(record) {
+      audit.push({ ...record });
+    }
+  };
+  const input = committedIntake();
+  await Promise.all([
+    projectCommittedIntake({
+      committedIntake: input,
+      lifecycleStore,
+      auditStore
+    }),
+    projectCommittedIntake({
+      committedIntake: input,
+      lifecycleStore,
+      auditStore
+    })
+  ]);
+  assert.equal(lifecycle.length, 2);
+  assert.equal(new Set(lifecycle.map(record => record.event_id)).size, 1);
+  const downstream = controlTowerData._test.dedupeLifecycleEventsByEventId(lifecycle);
+  assert.equal(downstream.length, 1);
+});
+
+test("projection accepts only lifecycle and audit store capabilities", async () => {
   const calls = [];
   await projectCommittedIntake({
     committedIntake: committedIntake(),
@@ -343,7 +441,7 @@ test("U01-017 projection accepts only lifecycle and audit store capabilities", a
   ]);
 });
 
-test("U01-018 repository timing harness verifies bounded backoff; real p95 remains UAT evidence", async () => {
+test("repository timing harness verifies bounded backoff while real p95 remains UAT evidence", async () => {
   const delays = [];
   let attempts = 0;
   await withBoundedRetry(

@@ -16,6 +16,19 @@ test("preserves exact client-scope comparison", () => {
   assert.equal(_test.sameClient({ client_id: "C-2" }, "C-1"), false);
 });
 
+test("deduplicates physical lifecycle rows by logical event identity", () => {
+  const events = [
+    { event_id: "EVENT-1", selected_action: "NEW_LEAD_SUBMITTED" },
+    { event_id: "EVENT-1", selected_action: "NEW_LEAD_SUBMITTED" },
+    { event_id: "EVENT-2", selected_action: "CALL_NOW" },
+    { event_id: "", selected_action: "LEGACY-A" },
+    { event_id: "", selected_action: "LEGACY-B" }
+  ];
+
+  const result = _test.dedupeLifecycleEventsByEventId(events);
+  assert.deepEqual(result, [events[0], events[2], events[3], events[4]]);
+});
+
 test("returns only a masked phone presentation value", () => {
   assert.equal(_test.maskPhoneDisplay("+1 (713) 555-0142"), "(713) ***-0142");
   assert.equal(_test.maskPhoneDisplay(""), null);
