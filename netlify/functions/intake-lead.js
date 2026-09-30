@@ -1,10 +1,20 @@
 const { google } = require("googleapis");
 const twilio = require("twilio");
 const { randomUUID } = require("crypto");
+const {
+  buildIntakeAuditRecord,
+  projectCommittedIntake
+} = require("./_shared/intake-post-commit-projection");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 const MAKE_INTAKE_HANDOFF_WEBHOOK_URL = process.env.MAKE_INTAKE_HANDOFF_WEBHOOK_URL;
+const INTAKE_PROJECTION_MODE = String(
+  process.env.EP_INTAKE_PROJECTION_MODE || "LEGACY_MAKE"
+).trim().toUpperCase();
+const INTAKE_AUDIT_SPREADSHEET_ID = String(
+  process.env.EP_NETLIFY_INTAKE_AUDIT_SPREADSHEET_ID || ""
+).trim();
 
 
 exports.handler = async (event, context) => {
@@ -285,6 +295,45 @@ const duplicateLeadId =
     ? (idempotencyRows[duplicateRowIndex][duplicateLeadIdColumn] || "")
     : "";
 
+let duplicateProjection = null;
+
+if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT" && duplicateLeadId) {
+  try {
+    const committedIntake = await loadCommittedIntakeByLeadId({
+      sheets,
+      spreadsheetId: client.lead_data_spreadsheet_id,
+      lead_id: duplicateLeadId
+    });
+
+    duplicateProjection = committedIntake
+      ? await runDirectIntakeProjection({
+          sheets,
+          committedIntake,
+          leadDataSpreadsheetId: client.lead_data_spreadsheet_id
+        })
+      : projectionRepairRequired("COMMITTED_INTAKE_NOT_FOUND");
+  } catch (error) {
+    duplicateProjection = projectionRepairRequired(
+      error?.code || "DUPLICATE_REPAIR_LOOKUP_FAILED"
+    );
+  }
+
+  logProjectionResult({
+    trace_id,
+    lead_id: duplicateLeadId,
+    result: duplicateProjection,
+    invocation: "DUPLICATE_REPAIR"
+  });
+
+  await recordProjectionRepairEvent({
+    sheets,
+    client_id: client.client_id,
+    lead_id: duplicateLeadId,
+    trace_id,
+    result: duplicateProjection
+  });
+}
+
 await appendSystemEvent({
   sheets,
   event_id: randomUUID(),
@@ -307,6 +356,7 @@ await appendSystemEvent({
       client: {
         client_id: client.client_id
       },
+      post_commit_projection: duplicateProjection,
       message: "Duplicate lead detected. Intake processing stopped."
     })
   };
@@ -753,11 +803,10 @@ console.log("intake_before_sms_send", {
 
 const smsResult = await sendSmsIfEnabled(smsPayload);
 
-try {
-if (MAKE_INTAKE_HANDOFF_WEBHOOK_URL) {
-const nowUtc = new Date().toISOString();
-
-const handoffPayload = {
+const projectionTimestamp = new Date().toISOString();
+const committedIntake = {
+  intake_commit_id: "",
+  audit_evidence_complete: true,
   event_type: "NETLIFY_INTAKE_COMPLETED",
   trace_id,
   lead_id: leadId,
@@ -765,7 +814,7 @@ const handoffPayload = {
   assigned_agent_id: assignmentResult.assigned_agent_id,
   source_system,
   source_detail: source_primary_key_value,
-  submitted_ts_utc: leadPayload.submitted_ts_utc || nowUtc,
+  submitted_ts_utc: leadPayload.submitted_ts_utc || projectionTimestamp,
   created_ts_utc: nowUtc,
   assignment_ts_utc: nowUtc,
   leadlog_created: true,
@@ -774,27 +823,43 @@ const handoffPayload = {
   reminder_next_action_type: "REMINDER_1",
   reminder_due_ts_utc: nextActionDue,
   sms_status: "ATTEMPTED",
-  sms_sent_ts_utc: smsResult?.sent ? nowUtc : null,
+  sms_sent_ts_utc: smsResult?.sent ? projectionTimestamp : null,
   sms_error_code: smsResult?.reason || null,
   sms_error_message: smsResult?.reason || null,
   status: "INTAKE_COMPLETED",
-  lead_preview: {
-    full_name: leadPayload.full_name,
-    phone_last4: (leadPayload.phone || "").slice(-4),
-    email: leadPayload.email || ""
-  }
+  lead_preview_full_name: leadPayload.full_name,
+  lead_preview_phone_last4: (leadPayload.phone || "").slice(-4),
+  lead_preview_email: leadPayload.email || ""
 };
 
-await fetch(MAKE_INTAKE_HANDOFF_WEBHOOK_URL, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify(handoffPayload)
+let postCommitProjection = null;
+
+if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
+  postCommitProjection = await runDirectIntakeProjection({
+    sheets,
+    committedIntake,
+    leadDataSpreadsheetId
+  });
+} else if (INTAKE_PROJECTION_MODE === "LEGACY_MAKE") {
+  postCommitProjection = await runLegacyMakeIntakeHandoff(committedIntake);
+} else {
+  postCommitProjection = projectionRepairRequired("INVALID_PROJECTION_MODE");
+}
+
+logProjectionResult({
+  trace_id,
+  lead_id: leadId,
+  result: postCommitProjection,
+  invocation: "POST_COMMIT"
 });
 
-}
-} catch (err) {
-console.log("intake_handoff_error", { trace_id });
-}
+await recordProjectionRepairEvent({
+  sheets,
+  client_id: client.client_id,
+  lead_id: leadId,
+  trace_id,
+  result: postCommitProjection
+});
 
 
 timing.total_ms = Date.now() - startTotal;
@@ -825,6 +890,7 @@ return {
     action_links_preview: actionLinks,
     sms_payload_preview: smsPayload,
     sms_send_result: smsResult,
+    post_commit_projection: postCommitProjection,
     message: smsResult.sent
   ? "Lead intake path completed. SMS was sent."
   : "Lead intake path completed. SMS was not sent."
@@ -1145,6 +1211,301 @@ function generateLeadId() {
 
 function generateShortCode() {
   return randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
+}
+
+function projectionRepairRequired(code, details = {}) {
+  return {
+    core_intake_status: "COMMITTED",
+    status: "PROJECTION_REPAIR_REQUIRED",
+    repair_required: true,
+    lifecycle: details.lifecycle || { status: "UNKNOWN" },
+    audit: details.audit || { status: "UNKNOWN" },
+    error: {
+      code: String(code || "PROJECTION_ERROR")
+    }
+  };
+}
+
+function logProjectionResult({ trace_id, lead_id, result, invocation }) {
+  console.log("intake_post_commit_projection", {
+    trace_id,
+    lead_id,
+    invocation,
+    mode: INTAKE_PROJECTION_MODE,
+    status: result?.status || "UNKNOWN",
+    repair_required: Boolean(result?.repair_required),
+    lifecycle_status: result?.lifecycle?.status || "UNKNOWN",
+    audit_status: result?.audit?.status || "UNKNOWN",
+    error_code:
+      result?.error?.code ||
+      result?.lifecycle?.error?.code ||
+      result?.audit?.error?.code ||
+      ""
+  });
+}
+
+async function recordProjectionRepairEvent({
+  sheets,
+  client_id,
+  lead_id,
+  trace_id,
+  result
+}) {
+  if (!result?.repair_required) {
+    return;
+  }
+
+  const repairCode =
+    result?.error?.code ||
+    result?.lifecycle?.error?.code ||
+    result?.audit?.error?.code ||
+    "PROJECTION_REPAIR_REQUIRED";
+
+  try {
+    await appendSystemEvent({
+      sheets,
+      event_id: randomUUID(),
+      event_timestamp: new Date().toISOString(),
+      client_id,
+      event_type: "INTAKE_PROJECTION_REPAIR_REQUIRED",
+      reference_id: lead_id,
+      severity: "WARN",
+      message: `Post-commit intake projection requires repair: ${repairCode}`,
+      source_module: "netlify-intake-lead",
+      processed_flag: "FALSE",
+      trace_id
+    });
+  } catch (error) {
+    console.log("intake_projection_repair_event_error", {
+      trace_id,
+      lead_id,
+      error_code: error?.code || "SYSTEM_EVENT_WRITE_FAILED"
+    });
+  }
+}
+
+async function runLegacyMakeIntakeHandoff(committedIntake) {
+  if (!MAKE_INTAKE_HANDOFF_WEBHOOK_URL) {
+    return projectionRepairRequired("LEGACY_MAKE_WEBHOOK_NOT_CONFIGURED", {
+      lifecycle: { status: "LEGACY_MAKE_NOT_SUBMITTED" },
+      audit: { status: "LEGACY_MAKE_NOT_SUBMITTED" }
+    });
+  }
+
+  const payload = {
+    event_type: committedIntake.event_type,
+    trace_id: committedIntake.trace_id,
+    lead_id: committedIntake.lead_id,
+    client_id: committedIntake.client_id,
+    assigned_agent_id: committedIntake.assigned_agent_id,
+    source_system: committedIntake.source_system,
+    source_detail: committedIntake.source_detail,
+    submitted_ts_utc: committedIntake.submitted_ts_utc,
+    created_ts_utc: committedIntake.created_ts_utc,
+    assignment_ts_utc: committedIntake.assignment_ts_utc,
+    leadlog_created: committedIntake.leadlog_created,
+    action_link_count: committedIntake.action_link_count,
+    reminder_created: committedIntake.reminder_created,
+    reminder_next_action_type: committedIntake.reminder_next_action_type,
+    reminder_due_ts_utc: committedIntake.reminder_due_ts_utc,
+    sms_status: committedIntake.sms_status,
+    sms_sent_ts_utc: committedIntake.sms_sent_ts_utc,
+    sms_error_code: committedIntake.sms_error_code,
+    sms_error_message: committedIntake.sms_error_message,
+    status: committedIntake.status,
+    lead_preview: {
+      full_name: committedIntake.lead_preview_full_name,
+      phone_last4: committedIntake.lead_preview_phone_last4,
+      email: committedIntake.lead_preview_email
+    }
+  };
+
+  try {
+    const response = await fetch(MAKE_INTAKE_HANDOFF_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      return projectionRepairRequired(`LEGACY_MAKE_HTTP_${response.status}`, {
+        lifecycle: { status: "LEGACY_MAKE_SUBMISSION_UNCONFIRMED" },
+        audit: { status: "LEGACY_MAKE_SUBMISSION_UNCONFIRMED" }
+      });
+    }
+
+    return {
+      core_intake_status: "COMMITTED",
+      status: "LEGACY_MAKE_SUBMITTED",
+      repair_required: false,
+      lifecycle: { status: "DELEGATED_TO_LEGACY_MAKE" },
+      audit: { status: "DELEGATED_TO_LEGACY_MAKE" }
+    };
+  } catch (error) {
+    return projectionRepairRequired("LEGACY_MAKE_SUBMISSION_FAILED", {
+      lifecycle: { status: "LEGACY_MAKE_SUBMISSION_UNCONFIRMED" },
+      audit: { status: "LEGACY_MAKE_SUBMISSION_UNCONFIRMED" }
+    });
+  }
+}
+
+function findObjectByField(rows, field, value) {
+  if (!rows.length) {
+    return null;
+  }
+
+  const objects = rowsToObjects(rows);
+  const expected = String(value || "").trim();
+  return objects.find(row => String(row[field] || "").trim() === expected) || null;
+}
+
+async function loadCommittedIntakeByLeadId({ sheets, spreadsheetId, lead_id }) {
+  const rows = await readSheetRows(
+    sheets,
+    spreadsheetId,
+    "LeadLog_Active!A1:ZZ10000"
+  );
+  const lead = findObjectByField(rows, "lead_id", lead_id);
+
+  if (!lead) {
+    return null;
+  }
+
+  return {
+    intake_commit_id: "",
+    audit_evidence_complete: false,
+    event_type: "NETLIFY_INTAKE_COMPLETED",
+    trace_id: lead.trace_id,
+    lead_id: lead.lead_id,
+    client_id: lead.client_id,
+    assigned_agent_id: lead.assigned_agent_id,
+    source_system: lead.source_system,
+    source_detail: lead.source_detail,
+    submitted_ts_utc: "",
+    created_ts_utc: lead.created_timestamp,
+    assignment_ts_utc: lead.assignment_ts_utc || lead.assigned_timestamp,
+    leadlog_created: true,
+    action_link_count: 0,
+    reminder_created: false,
+    reminder_next_action_type: "",
+    reminder_due_ts_utc: "",
+    sms_status: "",
+    sms_sent_ts_utc: "",
+    sms_error_code: "",
+    sms_error_message: "",
+    status: "INTAKE_COMPLETED",
+    lead_preview_full_name: lead.full_name,
+    lead_preview_phone_last4: String(lead.phone || "").slice(-4),
+    lead_preview_email: lead.email
+  };
+}
+
+async function runDirectIntakeProjection({
+  sheets,
+  committedIntake,
+  leadDataSpreadsheetId
+}) {
+  if (!INTAKE_AUDIT_SPREADSHEET_ID) {
+    return projectionRepairRequired("AUDIT_STORE_NOT_CONFIGURED", {
+      lifecycle: { status: "NOT_ATTEMPTED" },
+      audit: { status: "NOT_CONFIGURED" }
+    });
+  }
+
+  const lifecycleStore = {
+    async findByEventId(eventId) {
+      const rows = await readSheetRows(
+        sheets,
+        leadDataSpreadsheetId,
+        "LeadLifecycleLog!A1:L10000"
+      );
+      return findObjectByField(rows, "event_id", eventId);
+    },
+    async append(eventRecord) {
+      await appendLeadLifecycleEvent({
+        sheets,
+        spreadsheetId: leadDataSpreadsheetId,
+        ...eventRecord
+      });
+    }
+  };
+
+  const auditStore = {
+    async findByLogicalIdentity(auditRecord) {
+      const rows = await readSheetRows(
+        sheets,
+        INTAKE_AUDIT_SPREADSHEET_ID,
+        "NetlifyIntakeAudit!A1:X10000"
+      );
+
+      if (!rows.length) {
+        return null;
+      }
+
+      return rowsToObjects(rows).find(row =>
+        String(row.event_type || "").trim() === auditRecord.event_type &&
+        String(row.trace_id || "").trim() === auditRecord.trace_id &&
+        String(row.lead_id || "").trim() === auditRecord.lead_id
+      ) || null;
+    },
+    async append(auditRecord) {
+      const orderedRecord = buildIntakeAuditRecord(auditRecord);
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: INTAKE_AUDIT_SPREADSHEET_ID,
+        range: "NetlifyIntakeAudit!A1",
+        valueInputOption: "RAW",
+        requestBody: {
+          values: [[
+            orderedRecord.event_type,
+            orderedRecord.trace_id,
+            orderedRecord.lead_id,
+            orderedRecord.client_id,
+            orderedRecord.assigned_agent_id,
+            orderedRecord.source_system,
+            orderedRecord.source_detail,
+            orderedRecord.submitted_ts_utc,
+            orderedRecord.created_ts_utc,
+            orderedRecord.assignment_ts_utc,
+            orderedRecord.leadlog_created,
+            orderedRecord.action_link_count,
+            orderedRecord.reminder_created,
+            orderedRecord.reminder_next_action_type,
+            orderedRecord.reminder_due_ts_utc,
+            orderedRecord.sms_status,
+            orderedRecord.sms_sent_ts_utc,
+            orderedRecord.sms_error_code,
+            orderedRecord.sms_error_message,
+            orderedRecord.status,
+            orderedRecord.lead_preview_full_name,
+            orderedRecord.lead_preview_phone_last4,
+            orderedRecord.lead_preview_email,
+            orderedRecord.ingested_by_make_ts_utc
+          ]]
+        }
+      });
+    }
+  };
+
+  try {
+    const auditEvidenceComplete = committedIntake.audit_evidence_complete !== false;
+    const result = await projectCommittedIntake({
+      committedIntake,
+      lifecycleStore,
+      auditStore,
+      auditRequired: auditEvidenceComplete
+    });
+
+    if (!auditEvidenceComplete) {
+      return projectionRepairRequired("AUDIT_REPAIR_EVIDENCE_INCOMPLETE", {
+        lifecycle: result.lifecycle,
+        audit: { status: "REPAIR_REQUIRED" }
+      });
+    }
+
+    return result;
+  } catch (error) {
+    return projectionRepairRequired(error?.code || "DIRECT_PROJECTION_FAILED");
+  }
 }
 
 function isRetryableSheetsReadError(error) {
