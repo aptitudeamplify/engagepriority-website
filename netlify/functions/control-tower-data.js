@@ -156,15 +156,15 @@ exports.handler = async function handler(event) {
     const actionLinksByLeadId = groupByLeadId(
       actionLinkMapTable.rows.filter(row => sameClient(row, clientId))
     );
-    const lifecycleByLeadId = groupByLeadId(
+    const clientLifecycleEvents = dedupeLifecycleEventsByEventId(
       lifecycleTable.rows.filter(row => sameClient(row, clientId))
     );
+    const lifecycleByLeadId = groupByLeadId(clientLifecycleEvents);
 
     const nowMs = Date.now();
     const todayKey = localDateKey(new Date(nowMs), clientTimezone);
     const serviceWindow = getServiceWindowStatus(clientRow, new Date(nowMs));
     const clientLeadRows = leadLogTable.rows.filter(row => sameClient(row, clientId));
-    const clientLifecycleEvents = lifecycleTable.rows.filter(row => sameClient(row, clientId));
     const responseTimeSamples = buildResponseTimeSamples({
       leadRows: clientLeadRows,
       lifecycleEvents: clientLifecycleEvents,
@@ -969,6 +969,22 @@ function sameClient(row, clientId) {
   return trimmed(row.client_id) === clientId;
 }
 
+function dedupeLifecycleEventsByEventId(events) {
+  const seenEventIds = new Set();
+
+  return events.filter(event => {
+    const eventId = trimmed(event.event_id);
+    if (!eventId) {
+      return true;
+    }
+    if (seenEventIds.has(eventId)) {
+      return false;
+    }
+    seenEventIds.add(eventId);
+    return true;
+  });
+}
+
 function firstNonBlank(...values) {
   for (const value of values) {
     const text = trimmed(value);
@@ -1034,6 +1050,7 @@ function maskPhoneDisplay(value) {
 module.exports = {
   handler: exports.handler,
   _test: {
+    dedupeLifecycleEventsByEventId,
     deriveLeadRecord,
     maskPhoneDisplay,
     sameClient,
