@@ -1,8 +1,12 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 
 process.env.EP_INTAKE_PROJECTION_MODE = "NETLIFY_DIRECT";
 process.env.EP_NETLIFY_INTAKE_AUDIT_SPREADSHEET_ID = "AUDIT-SHEET";
+process.env.EP_CENTRAL_REGISTRY_SPREADSHEET_ID = "UAT-CENTRAL-REGISTRY";
+process.env.EP_ACTION_LINK_MAP_SPREADSHEET_ID = "UAT-ACTION-LINK-MAP";
 process.env.ENABLE_SMS_SEND = "false";
 process.env.GOOGLE_SERVICE_ACCOUNT = "{}";
 
@@ -106,7 +110,7 @@ function createObligationStore() {
 }
 
 function createFreshSheets() {
-  const calls = { append: [], update: [] };
+  const calls = { append: [], update: [], batchGet: [] };
   const lifecycleHeaders = [
     "event_id",
     "event_ts_utc",
@@ -151,7 +155,8 @@ function createFreshSheets() {
   const sheets = {
     spreadsheets: {
       values: {
-        async batchGet() {
+        async batchGet(args) {
+          calls.batchGet.push(args);
           return { data: { valueRanges: registryFixtures() } };
         },
         async get({ spreadsheetId, range }) {
@@ -460,6 +465,22 @@ test("U01-001 handler commits one direct lifecycle and audit projection without 
 
   assert.equal(response.statusCode, 200);
   assert.equal(body.post_commit_projection.status, "PROJECTION_COMMITTED");
+  assert.equal(
+    runtime.calls.batchGet[0].spreadsheetId,
+    "UAT-CENTRAL-REGISTRY"
+  );
+  assert.equal(
+    runtime.calls.update.find(call => call.range === "RoutingState!B2").spreadsheetId,
+    "UAT-CENTRAL-REGISTRY"
+  );
+  assert.equal(
+    runtime.calls.append.find(call => call.range.startsWith("ReminderQueue!")).spreadsheetId,
+    "UAT-CENTRAL-REGISTRY"
+  );
+  assert.equal(
+    runtime.calls.append.find(call => call.range.startsWith("ActionLinkMap!")).spreadsheetId,
+    "UAT-ACTION-LINK-MAP"
+  );
   assert.equal(countRange(runtime.calls, "LeadLog_Active!"), 1);
   assert.equal(countRange(runtime.calls, "ReminderQueue!"), 1);
   assert.equal(countRange(runtime.calls, "ActionLinkMap!"), 1);
@@ -813,4 +834,54 @@ test("U01-002/U01-004/U01-005 ordinary duplicate handler repairs once with all s
     reminder_creations: 0,
     sms_sends: 0
   });
+});
+
+test("destination isolation fails closed before any Sheets call when bindings are absent", async t => {
+  const previousCentral = process.env.EP_CENTRAL_REGISTRY_SPREADSHEET_ID;
+  const previousActionMap = process.env.EP_ACTION_LINK_MAP_SPREADSHEET_ID;
+  delete process.env.EP_CENTRAL_REGISTRY_SPREADSHEET_ID;
+  delete process.env.EP_ACTION_LINK_MAP_SPREADSHEET_ID;
+  t.after(() => {
+    process.env.EP_CENTRAL_REGISTRY_SPREADSHEET_ID = previousCentral;
+    process.env.EP_ACTION_LINK_MAP_SPREADSHEET_ID = previousActionMap;
+  });
+
+  let sheetsCallCount = 0;
+  intake._test.setRuntime({
+    sheets: {
+      spreadsheets: {
+        values: {
+          async batchGet() { sheetsCallCount += 1; },
+          async get() { sheetsCallCount += 1; },
+          async update() { sheetsCallCount += 1; },
+          async append() { sheetsCallCount += 1; }
+        }
+      }
+    }
+  });
+
+  const response = await intake.handler(leadPayload(), {});
+  const body = JSON.parse(response.body);
+
+  assert.equal(response.statusCode, 500);
+  assert.equal(body.status, "INTAKE_TEST_ERROR");
+  assert.match(body.error, /EP_CENTRAL_REGISTRY_SPREADSHEET_ID/);
+  assert.match(body.error, /EP_ACTION_LINK_MAP_SPREADSHEET_ID/);
+  assert.equal(sheetsCallCount, 0);
+});
+
+test("destination isolation contains no fallback to the former Production spreadsheet IDs", () => {
+  const source = fs.readFileSync(
+    path.join(__dirname, "../netlify/functions/intake-lead.js"),
+    "utf8"
+  );
+
+  assert.equal(
+    source.includes("18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ"),
+    false
+  );
+  assert.equal(
+    source.includes("1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw"),
+    false
+  );
 });
