@@ -98,6 +98,7 @@ test("repair-marker write failure remains isolated from the committed intake res
 
   await assert.doesNotReject(() => intake._test.recordProjectionRepairEvent({
     sheets,
+    centralRegistrySpreadsheetId: "UAT-CENTRAL-REGISTRY",
     client_id: "CLIENT-1",
     lead_id: "LEAD-1",
     trace_id: "TRACE-1",
