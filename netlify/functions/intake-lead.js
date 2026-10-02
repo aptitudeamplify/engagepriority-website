@@ -11,8 +11,6 @@ const {
   createNetlifyIntakeObligationStore
 } = require("./_shared/netlify-intake-obligation-store");
 
-const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
-const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
 const MAKE_INTAKE_HANDOFF_WEBHOOK_URL = process.env.MAKE_INTAKE_HANDOFF_WEBHOOK_URL;
 const INTAKE_PROJECTION_MODE = String(
   process.env.EP_INTAKE_PROJECTION_MODE || "LEGACY_MAKE"
@@ -68,6 +66,11 @@ sheets_write_reminderqueue_ms: 0
 };
 
 try {
+const {
+  centralRegistrySpreadsheetId,
+  actionLinkMapSpreadsheetId
+} = resolveRequiredIntakeSpreadsheetBindings();
+
 let t0 = Date.now();
 
 const leadPayload = parseLeadPayload(event);
@@ -103,7 +106,7 @@ const leadId = generateLeadId();
 
 t0 = Date.now();
 const registryRes = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
-  spreadsheetId: SHEET_ID,
+  spreadsheetId: centralRegistrySpreadsheetId,
   ranges: [
     "Clients!A1:AC1000",
     "Agents!A1:Z1000",
@@ -360,6 +363,7 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT" && duplicateLeadId) {
 
   await recordProjectionRepairEvent({
     sheets,
+    centralRegistrySpreadsheetId,
     client_id: client.client_id,
     lead_id: duplicateLeadId,
     trace_id,
@@ -369,6 +373,7 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT" && duplicateLeadId) {
 
 await appendSystemEvent({
   sheets,
+  spreadsheetId: centralRegistrySpreadsheetId,
   event_id: randomUUID(),
   event_timestamp: new Date().toISOString(),
   client_id: client.client_id,
@@ -501,6 +506,7 @@ if (
 
   await appendReleaseQueueRow({
     sheets,
+    spreadsheetId: centralRegistrySpreadsheetId,
     release_id: randomUUID(),
     client_id: client.client_id,
     lead_id: leadId,
@@ -688,7 +694,7 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
 t0 = Date.now();
 
 await sheets.spreadsheets.values.update({
-  spreadsheetId: SHEET_ID,
+  spreadsheetId: centralRegistrySpreadsheetId,
   range: "RoutingState!B2",
   valueInputOption: "RAW",
   requestBody: {
@@ -808,7 +814,7 @@ const reminderRow = [
 ];
 
 await sheets.spreadsheets.values.append({
-  spreadsheetId: SHEET_ID,
+  spreadsheetId: centralRegistrySpreadsheetId,
   range: "ReminderQueue!A1",
   valueInputOption: "RAW",
   requestBody: {
@@ -818,6 +824,7 @@ await sheets.spreadsheets.values.append({
 
 const actionLinks = await createInitialActionLinks({
   sheets,
+  actionLinkMapSpreadsheetId,
   lead_id: leadId,
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id,
@@ -972,6 +979,7 @@ logProjectionResult({
 
 await recordProjectionRepairEvent({
   sheets,
+  centralRegistrySpreadsheetId,
   client_id: client.client_id,
   lead_id: leadId,
   trace_id,
@@ -1036,6 +1044,35 @@ return JSON.parse(event.body);
 } catch (error) {
 throw new Error("Invalid JSON payload received by intake-lead function.");
 }
+}
+
+function resolveRequiredIntakeSpreadsheetBindings() {
+  const bindings = {
+    centralRegistrySpreadsheetId: String(
+      process.env.EP_CENTRAL_REGISTRY_SPREADSHEET_ID || ""
+    ).trim(),
+    actionLinkMapSpreadsheetId: String(
+      process.env.EP_ACTION_LINK_MAP_SPREADSHEET_ID || ""
+    ).trim()
+  };
+  const missing = [];
+
+  if (!bindings.centralRegistrySpreadsheetId) {
+    missing.push("EP_CENTRAL_REGISTRY_SPREADSHEET_ID");
+  }
+  if (!bindings.actionLinkMapSpreadsheetId) {
+    missing.push("EP_ACTION_LINK_MAP_SPREADSHEET_ID");
+  }
+
+  if (missing.length > 0) {
+    const error = new Error(
+      `Missing required intake spreadsheet configuration: ${missing.join(", ")}`
+    );
+    error.code = "INTAKE_SPREADSHEET_CONFIGURATION_MISSING";
+    throw error;
+  }
+
+  return bindings;
 }
 
 function rowsToObjects(rows) {
@@ -1555,6 +1592,7 @@ function logProjectionResult({ trace_id, lead_id, result, invocation }) {
 
 async function recordProjectionRepairEvent({
   sheets,
+  centralRegistrySpreadsheetId,
   client_id,
   lead_id,
   trace_id,
@@ -1573,6 +1611,7 @@ async function recordProjectionRepairEvent({
   try {
     await appendSystemEvent({
       sheets,
+      spreadsheetId: centralRegistrySpreadsheetId,
       event_id: randomUUID(),
       event_timestamp: new Date().toISOString(),
       client_id,
@@ -1897,7 +1936,14 @@ async function withSheetsReadRetry(operation, { maxRetries = 2, baseDelayMs = 25
   }
 }
 
-async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
+async function createInitialActionLinks({
+  sheets,
+  actionLinkMapSpreadsheetId,
+  lead_id,
+  client,
+  assigned_agent_id,
+  trace_id
+}) {
   const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
   const created_ts_utc = new Date().toISOString();
@@ -1944,7 +1990,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
   });
 
   await sheets.spreadsheets.values.append({
-    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    spreadsheetId: actionLinkMapSpreadsheetId,
     range: "ActionLinkMap!A:P",
     valueInputOption: "RAW",
     requestBody: {
@@ -2064,6 +2110,7 @@ async function appendLeadIndexRow({ sheets, spreadsheetId, lead_id, leadlog_row,
 
 async function appendReleaseQueueRow({
   sheets,
+  spreadsheetId,
   release_id,
   client_id,
   lead_id,
@@ -2073,7 +2120,7 @@ async function appendReleaseQueueRow({
   notes
 }) {
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId,
     range: "ReleaseQueue!A1",
     valueInputOption: "RAW",
     requestBody: {
@@ -2243,9 +2290,9 @@ hard_reject
 };
 }
 
-async function appendSystemEvent({ sheets, event_id, event_timestamp, client_id, event_type, reference_id, severity, message, source_module, processed_flag, trace_id }) {
+async function appendSystemEvent({ sheets, spreadsheetId, event_id, event_timestamp, client_id, event_type, reference_id, severity, message, source_module, processed_flag, trace_id }) {
   await sheets.spreadsheets.values.append({
-    spreadsheetId: SHEET_ID,
+    spreadsheetId,
     range: "SystemEvents!A1",
     valueInputOption: "RAW",
     requestBody: {
@@ -2273,6 +2320,7 @@ exports._test = {
   projectionNotApplicable,
   recoverProjectionReadyIntake,
   recordProjectionRepairEvent,
+  resolveRequiredIntakeSpreadsheetBindings,
   runDirectIntakeProjection,
   runLegacyMakeIntakeHandoff,
   setRuntime(runtime) {
