@@ -56,6 +56,22 @@ function actionRowFixture(overrides = {}) {
   };
 }
 
+function atomicClaimStore() {
+  const entries = new Map();
+  return {
+    entries,
+    async set(key, value, options) {
+      assert.equal(options?.onlyIfNew, true);
+      await Promise.resolve();
+      if (entries.has(key)) {
+        return { modified: false };
+      }
+      entries.set(key, value);
+      return { modified: true, etag: `etag-${entries.size}` };
+    }
+  };
+}
+
 test("fresh lifecycle, assignment, gateway, and attempt identities retain approved semantics", () => {
   const lifecycle = identity.createLifecycleIdentity({
     leadId: "L-IDENTITY-1",
@@ -129,33 +145,108 @@ test("direct obligation evidence carries identities without changing projection 
   assert.equal(stored.value.committed_intake.gateway_id, undefined);
 });
 
-test("one durable action-attempt identity is reused and claim records attempt evidence", async () => {
-  const updates = [];
+test("two independent action requests produce one durable winner and one Make request", async () => {
   const batches = [];
-  const sheets = {
-    spreadsheets: { values: {
-      async update(args) { updates.push(args); },
-      async batchUpdate(args) { batches.push(args); }
-    } }
+  const claimStore = atomicClaimStore();
+  const requests = [];
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    requests.push({ url, payload: JSON.parse(options.body) });
+    return { ok: true, status: 200, async text() { return "accepted"; } };
   };
-  const row = actionRowFixture();
-  const first = await handleAction._test.ensureActionAttemptId(sheets, row);
-  const second = await handleAction._test.ensureActionAttemptId(sheets, row);
-  await handleAction._test.claimActionLinkForDispatch(
-    sheets,
-    row,
-    "2026-10-03T10:00:00.000Z",
-    "CALL_NOW",
-    first
+  const createRequestContext = () => ({
+    actionRow: actionRowFixture(),
+    sheets: {
+      spreadsheets: { values: {
+        async batchUpdate(args) { batches.push(args); }
+      } }
+    }
+  });
+  const run = async context => {
+    const claim = await handleAction._test.establishGatewayActionClaim({
+      ...context,
+      claimStore,
+      shortCode: "SHORT1",
+      selectedAction: "CALL_NOW",
+      claimedTsUtc: "2026-10-03T10:00:00.000Z"
+    });
+    if (!claim.won) {
+      return claim;
+    }
+    await handleAction._test.dispatchClaimedAction({
+      ...context,
+      shortCode: "SHORT1",
+      selectedAction: "CALL_NOW",
+      gatewayContext: "INITIAL_RESPONSE_GATEWAY",
+      actionAttemptId: claim.actionAttemptId
+    });
+    return claim;
+  };
+
+  let results;
+  try {
+    results = await Promise.all([
+      run(createRequestContext()),
+      run(createRequestContext())
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const winner = results.find(result => result.won);
+  const loser = results.find(result => !result.won);
+  const persistedClaim = JSON.parse([...claimStore.entries.values()][0]);
+  const attemptWrite = batches[0].requestBody.data.find(item =>
+    item.range === "ActionLinkMap!X2"
   );
 
-  assert.match(first, /^aa_/);
-  assert.equal(second, first);
-  assert.equal(updates.length, 1);
+  assert.ok(winner);
+  assert.ok(loser);
+  assert.match(winner.actionAttemptId, /^aa_/);
+  assert.equal(loser.actionAttemptId, "");
+  assert.equal(claimStore.entries.size, 1);
   assert.equal(batches.length, 1);
-  assert.equal(batches[0].requestBody.data[0].range, "ActionLinkMap!L2");
-  assert.match(batches[0].requestBody.data[1].values[0][0], /state=DISPATCH_ATTEMPTED/);
-  assert.match(batches[0].requestBody.data[1].values[0][0], new RegExp(first));
+  assert.equal(requests.length, 1);
+  assert.equal(persistedClaim.action_attempt_id, winner.actionAttemptId);
+  assert.equal(attemptWrite.values[0][0], winner.actionAttemptId);
+  assert.equal(requests[0].payload.action_attempt_id, winner.actionAttemptId);
+  assert.match(
+    batches[0].requestBody.data.find(item => item.range === "ActionLinkMap!M2")
+      .values[0][0],
+    /state=DISPATCH_ATTEMPTED/
+  );
+});
+
+test("a persisted action-attempt identity is immutable and reused by the winner", async () => {
+  const batches = [];
+  const claimStore = atomicClaimStore();
+  const actionRow = actionRowFixture({
+    short_code: "SHORT2",
+    gateway_id: "gw_gateway-2",
+    action_attempt_id: "aa_existing-attempt"
+  });
+  const result = await handleAction._test.establishGatewayActionClaim({
+    sheets: {
+      spreadsheets: { values: {
+        async batchUpdate(args) { batches.push(args); }
+      } }
+    },
+    claimStore,
+    actionRow,
+    shortCode: "SHORT2",
+    selectedAction: "CALL_NOW",
+    claimedTsUtc: "2026-10-03T10:00:00.000Z"
+  });
+  const persistedClaim = JSON.parse([...claimStore.entries.values()][0]);
+
+  assert.equal(result.won, true);
+  assert.equal(result.actionAttemptId, "aa_existing-attempt");
+  assert.equal(persistedClaim.action_attempt_id, "aa_existing-attempt");
+  assert.equal(
+    batches[0].requestBody.data.find(item => item.range === "ActionLinkMap!X2")
+      .values[0][0],
+    "aa_existing-attempt"
+  );
 });
 
 test("identity-complete and legacy action payloads preserve the operational five fields", async () => {
@@ -210,37 +301,63 @@ test("identity-complete and legacy action payloads preserve the operational five
 test("Make non-2xx retains claim evidence and creates actionable failure evidence", async () => {
   const updates = [];
   const appends = [];
+  const batches = [];
+  const requests = [];
+  const claimStore = atomicClaimStore();
   const sheets = {
     spreadsheets: { values: {
+      async batchUpdate(args) { batches.push(args); },
       async update(args) { updates.push(args); },
       async append(args) { appends.push(args); }
     } }
   };
-  const originalFetch = global.fetch;
-  global.fetch = async () => ({
-    ok: false,
-    status: 503,
-    async text() { return "unavailable"; }
+  const actionRow = actionRowFixture();
+  const claim = await handleAction._test.establishGatewayActionClaim({
+    sheets,
+    claimStore,
+    actionRow,
+    shortCode: "SHORT1",
+    selectedAction: "CALL_NOW"
   });
+  const originalFetch = global.fetch;
+  global.fetch = async (...args) => {
+    requests.push(args);
+    return {
+      ok: false,
+      status: 503,
+      async text() { return "unavailable"; }
+    };
+  };
   try {
     const result = await handleAction._test.dispatchClaimedAction({
       sheets,
       shortCode: "SHORT1",
       selectedAction: "CALL_NOW",
       gatewayContext: "INITIAL_RESPONSE_GATEWAY",
-      actionRow: actionRowFixture({ action_attempt_id: "aa_attempt-1" }),
-      actionAttemptId: "aa_attempt-1"
+      actionRow,
+      actionAttemptId: claim.actionAttemptId
     });
     assert.equal(result.ok, false);
   } finally {
     global.fetch = originalFetch;
   }
+  const repeatedClaim = await handleAction._test.establishGatewayActionClaim({
+    sheets,
+    claimStore,
+    actionRow: actionRowFixture(),
+    shortCode: "SHORT1",
+    selectedAction: "CALL_NOW"
+  });
 
+  assert.equal(claim.won, true);
+  assert.equal(repeatedClaim.won, false);
+  assert.equal(requests.length, 1);
+  assert.equal(batches.length, 1);
   assert.match(updates[0].requestBody.values[0][0], /state=MAKE_HANDOFF_FAILED/);
   assert.match(updates[0].requestBody.values[0][0], /HTTP_503/);
   assert.equal(appends[0].range, "SystemEvents!A1");
   assert.equal(appends[0].requestBody.values[0][3], "GATEWAY_MAKE_HANDOFF_FAILED");
-  assert.equal(appends[0].requestBody.values[0][4], "aa_attempt-1");
+  assert.equal(appends[0].requestBody.values[0][4], claim.actionAttemptId);
 });
 
 test("failure evidence falls back to SystemEvents when the ActionLinkMap note write fails", async () => {
@@ -262,6 +379,63 @@ test("failure evidence falls back to SystemEvents when the ActionLinkMap note wr
   assert.equal(appends[0].requestBody.values[0][3], "GATEWAY_MAKE_HANDOFF_FAILED");
 });
 
+test("an ambiguous Make failure leaves the claim consumed and cannot redispatch", async () => {
+  const claimStore = atomicClaimStore();
+  const batches = [];
+  const updates = [];
+  const appends = [];
+  const requests = [];
+  const sheets = {
+    spreadsheets: { values: {
+      async batchUpdate(args) { batches.push(args); },
+      async update(args) { updates.push(args); },
+      async append(args) { appends.push(args); }
+    } }
+  };
+  const firstContext = actionRowFixture();
+  const firstClaim = await handleAction._test.establishGatewayActionClaim({
+    sheets,
+    claimStore,
+    actionRow: firstContext,
+    shortCode: "SHORT1",
+    selectedAction: "CALL_NOW"
+  });
+  const originalFetch = global.fetch;
+  global.fetch = async (...args) => {
+    requests.push(args);
+    const error = new Error("ambiguous network result");
+    error.code = "ETIMEDOUT";
+    throw error;
+  };
+  try {
+    await assert.rejects(() => handleAction._test.dispatchClaimedAction({
+      sheets,
+      shortCode: "SHORT1",
+      selectedAction: "CALL_NOW",
+      gatewayContext: "INITIAL_RESPONSE_GATEWAY",
+      actionRow: firstContext,
+      actionAttemptId: firstClaim.actionAttemptId
+    }), /ambiguous network result/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  const repeatedClaim = await handleAction._test.establishGatewayActionClaim({
+    sheets,
+    claimStore,
+    actionRow: actionRowFixture(),
+    shortCode: "SHORT1",
+    selectedAction: "CALL_NOW"
+  });
+
+  assert.equal(firstClaim.won, true);
+  assert.equal(repeatedClaim.won, false);
+  assert.equal(requests.length, 1);
+  assert.equal(batches.length, 1);
+  assert.match(updates[0].requestBody.values[0][0], /state=MAKE_HANDOFF_FAILED/);
+  assert.equal(appends[0].requestBody.values[0][3], "GATEWAY_MAKE_HANDOFF_FAILED");
+});
+
 test("stored-action branch transports its persisted action identity context", () => {
   const source = fs.readFileSync(
     path.join(__dirname, "../netlify/functions/handle-action.js"),
@@ -271,10 +445,10 @@ test("stored-action branch transports its persisted action identity context", ()
     source.indexOf("const storedSelectedAction"),
     source.indexOf("if (!validateActiveGatewayRow(actionRow))")
   );
-  assert.match(storedBranch, /ensureActionAttemptId\(sheets, actionRow\)/);
+  assert.match(storedBranch, /establishGatewayActionClaim\(\{/);
   assert.match(storedBranch, /dispatchClaimedAction\(\{/);
-  assert.match(storedBranch, /actionRow: freshActionRow/);
-  assert.match(storedBranch, /actionAttemptId/);
+  assert.match(storedBranch, /actionRow,/);
+  assert.match(storedBranch, /actionAttemptId: durableActionAttemptId/);
 });
 
 test("after-hours release propagates identity and legacy held rows remain blank-compatible", async () => {
