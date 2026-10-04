@@ -472,9 +472,31 @@ test("U01-001 handler commits one direct lifecycle and audit projection without 
   assert.ok(obligationStore.calls.set >= 3);
   assert.equal(obligationStore.calls.delete, 1);
 
+  const leadRow = runtime.calls.append.find(call =>
+    call.range.startsWith("LeadLog_Active!")
+  ).requestBody.values[0];
+  const reminderRow = runtime.calls.append.find(call =>
+    call.range.startsWith("ReminderQueue!")
+  ).requestBody.values[0];
+  const gatewayRow = runtime.calls.append.find(call =>
+    call.range.startsWith("ActionLinkMap!")
+  ).requestBody.values[0];
+  assert.equal(leadRow.at(-6), body.lead_preview.lead_id);
+  assert.match(leadRow.at(-5), /^as_/);
+  assert.equal(leadRow.at(-4), 1);
+  assert.match(leadRow.at(-3), /^oe_/);
+  assert.equal(leadRow.at(-2), "AGENT-1");
+  assert.match(leadRow.at(-1), /^ps_/);
+  assert.deepEqual(reminderRow.slice(-6), leadRow.slice(-6));
+  assert.deepEqual(gatewayRow.slice(16, 22), leadRow.slice(-6));
+  assert.match(gatewayRow[22], /^gw_/);
+  assert.equal(gatewayRow[23], "");
+  assert.equal(gatewayRow[24], "");
+
   const preCommit = obligationStore.calls.setValues[0];
   assert.equal(preCommit.phase, "PRE_COMMIT");
   assert.equal(preCommit.committed_intake, undefined);
+  assert.equal(preCommit.assignment_id, leadRow.at(-5));
   assert.equal(JSON.stringify(preCommit).includes("Synthetic Person"), false);
   assert.equal(JSON.stringify(preCommit).includes("synthetic@example.invalid"), false);
   assert.equal(JSON.stringify(preCommit).includes("+12815550101"), false);

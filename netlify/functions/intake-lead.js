@@ -10,6 +10,12 @@ const {
 const {
   createNetlifyIntakeObligationStore
 } = require("./_shared/netlify-intake-obligation-store");
+const {
+  createLifecycleIdentity,
+  createAssignmentIdentity,
+  createGatewayIdentity,
+  identityValues
+} = require("./_shared/lifecycle-identity");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -100,6 +106,7 @@ const auth = new google.auth.GoogleAuth({
 
 const sheets = intakeTestRuntime?.sheets || google.sheets({ version: "v4", auth });
 const leadId = generateLeadId();
+const lifecycleIdentity = createLifecycleIdentity({ leadId });
 
 t0 = Date.now();
 const registryRes = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
@@ -467,7 +474,13 @@ if (
     "",                                    // token_contacted_not_interested
     "0",                                   // no_answer_attempt_count
     nowUtc,                                // scenario_started_ts_utc
-    nowUtc                                 // scenario_ended_ts_utc
+    nowUtc,                                // scenario_ended_ts_utc
+    lifecycleIdentity.lifecycle_id,        // lifecycle_id
+    "",                                    // assignment_id (created at release)
+    "",                                    // assignment_sequence (created at release)
+    "",                                    // owner_epoch_id (created at release)
+    "",                                    // agent_id_snapshot (created at release)
+    lifecycleIdentity.policy_snapshot_id   // policy_snapshot_id
   ];
 
   const leadLogAppendResult =
@@ -507,7 +520,8 @@ if (
     release_due_ts_utc: nowUtc,
     release_reason: "OFF_HOURS_CLIENT_CLOSED",
     created_ts_utc: nowUtc,
-    notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`
+    notes: `Held at intake. Local service window status: ${serviceWindowStatus.local_day} ${serviceWindowStatus.local_time} ${serviceWindowStatus.timezone}.`,
+    lifecycle_identity: lifecycleIdentity
   });
 
   await appendLeadLifecycleEvent({
@@ -653,6 +667,11 @@ if (!assignedAgent) {
   throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 }
 
+const assignmentIdentity = createAssignmentIdentity({
+  lifecycleIdentity,
+  assignedAgentId: assignmentResult.assigned_agent_id
+});
+
 const nowUtc = new Date().toISOString();
 const leadDataSpreadsheetId = client.lead_data_spreadsheet_id;
 
@@ -676,7 +695,8 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
   directProjectionIdentity = {
     trace_id,
     lead_id: leadId,
-    client_id: client.client_id
+    client_id: client.client_id,
+    ...assignmentIdentity
   };
   await persistIntakeProjectionObligation({
     obligationStore: directObligationStore,
@@ -762,7 +782,8 @@ const row = [
   "",                                    // token_contacted_not_interested
   "0",                                   // no_answer_attempt_count
   nowUtc,                                // scenario_started_ts_utc
-  ""                                     // scenario_ended_ts_utc
+  "",                                    // scenario_ended_ts_utc
+  ...identityValues(assignmentIdentity)
 ];
 
 const leadLogAppendResult = await sheets.spreadsheets.values.append({
@@ -804,7 +825,8 @@ const reminderRow = [
   "REMINDER_1",
   "", // last_processed_ts_utc
   "", // notes
-  ""  // dispatch_claimed_ts_utc
+  "", // dispatch_claimed_ts_utc
+  ...identityValues(assignmentIdentity)
 ];
 
 await sheets.spreadsheets.values.append({
@@ -821,7 +843,8 @@ const actionLinks = await createInitialActionLinks({
   lead_id: leadId,
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id,
-  trace_id
+  trace_id,
+  assignment_identity: assignmentIdentity
 });
 
 await appendIdempotencyRow({
@@ -862,7 +885,8 @@ if (directObligationStore) {
     created_ts_utc: nowUtc,
     assignment_ts_utc: nowUtc,
     reminder_due_ts_utc: nextActionDue,
-    sms_status: "NOT_ATTEMPTED"
+    sms_status: "NOT_ATTEMPTED",
+    lifecycle_identity: assignmentIdentity
   });
   directCommittedIntake = {
     ...directCommittedIntake,
@@ -928,7 +952,8 @@ const legacyCommittedIntake = {
   status: "INTAKE_COMPLETED",
   lead_preview_full_name: leadPayload.full_name,
   lead_preview_phone_last4: (leadPayload.phone || "").slice(-4),
-  lead_preview_email: leadPayload.email || ""
+  lead_preview_email: leadPayload.email || "",
+  ...assignmentIdentity
 };
 
 if (directCommittedIntake) {
@@ -999,6 +1024,7 @@ return {
     },
     assignment: {
       assigned_agent_id: assignmentResult.assigned_agent_id,
+      ...assignmentIdentity,
       routing_pointer_before: assignmentResult.routing_pointer_before,
       routing_pointer_after: assignmentResult.routing_pointer_after,
       cycle_length: assignmentResult.cycle_length,
@@ -1372,7 +1398,8 @@ function buildDirectCommittedIntake({
   created_ts_utc,
   assignment_ts_utc,
   reminder_due_ts_utc,
-  sms_status
+  sms_status,
+  lifecycle_identity
 }) {
   return {
     intake_commit_id: "",
@@ -1399,7 +1426,8 @@ function buildDirectCommittedIntake({
     status: "INTAKE_COMPLETED",
     lead_preview_full_name: leadPayload.full_name || "",
     lead_preview_phone_last4: String(leadPayload.phone || "").slice(-4),
-    lead_preview_email: leadPayload.email || ""
+    lead_preview_email: leadPayload.email || "",
+    ...(lifecycle_identity || {})
   };
 }
 
@@ -1432,7 +1460,13 @@ async function persistIntakeProjectionObligation({
     client_id: String(evidence.client_id || ""),
     lead_id: String(evidence.lead_id || ""),
     trace_id: String(evidence.trace_id || ""),
-    updated_ts_utc: new Date().toISOString()
+    updated_ts_utc: new Date().toISOString(),
+    lifecycle_id: String(evidence.lifecycle_id || ""),
+    assignment_id: String(evidence.assignment_id || ""),
+    assignment_sequence: evidence.assignment_sequence || "",
+    owner_epoch_id: String(evidence.owner_epoch_id || ""),
+    agent_id_snapshot: String(evidence.agent_id_snapshot || ""),
+    policy_snapshot_id: String(evidence.policy_snapshot_id || "")
   };
 
   if (isProjectionReady) {
@@ -1607,6 +1641,12 @@ async function runLegacyMakeIntakeHandoff(committedIntake) {
     lead_id: committedIntake.lead_id,
     client_id: committedIntake.client_id,
     assigned_agent_id: committedIntake.assigned_agent_id,
+    lifecycle_id: committedIntake.lifecycle_id || "",
+    assignment_id: committedIntake.assignment_id || "",
+    assignment_sequence: committedIntake.assignment_sequence || "",
+    owner_epoch_id: committedIntake.owner_epoch_id || "",
+    agent_id_snapshot: committedIntake.agent_id_snapshot || "",
+    policy_snapshot_id: committedIntake.policy_snapshot_id || "",
     source_system: committedIntake.source_system,
     source_detail: committedIntake.source_detail,
     submitted_ts_utc: committedIntake.submitted_ts_utc,
@@ -1700,6 +1740,12 @@ async function loadCommittedIntakeByLeadId({ sheets, spreadsheetId, lead_id }) {
       lead_id: lead.lead_id,
       client_id: lead.client_id,
       assigned_agent_id: lead.assigned_agent_id,
+      lifecycle_id: lead.lifecycle_id || "",
+      assignment_id: lead.assignment_id || "",
+      assignment_sequence: lead.assignment_sequence || "",
+      owner_epoch_id: lead.owner_epoch_id || "",
+      agent_id_snapshot: lead.agent_id_snapshot || "",
+      policy_snapshot_id: lead.policy_snapshot_id || "",
       source_system: lead.source_system,
       source_detail: lead.source_detail,
       submitted_ts_utc: "",
@@ -1897,7 +1943,14 @@ async function withSheetsReadRetry(operation, { maxRetries = 2, baseDelayMs = 25
   }
 }
 
-async function createInitialActionLinks({ sheets, lead_id, client, assigned_agent_id, trace_id }) {
+async function createInitialActionLinks({
+  sheets,
+  lead_id,
+  client,
+  assigned_agent_id,
+  trace_id,
+  assignment_identity
+}) {
   const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
   const created_ts_utc = new Date().toISOString();
@@ -1908,11 +1961,13 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
   for (const gateway_context of gatewayContexts) {
     const short_code = generateShortCode();
     const public_url = `https://engagepriority.com/a/${short_code}`;
+    const gatewayIdentity = createGatewayIdentity(assignment_identity);
 
     results[gateway_context] = {
       short_code,
       token: short_code,
-      public_url
+      public_url,
+      gateway_id: gatewayIdentity.gateway_id
     };
 
     rowsToInsert.push([
@@ -1931,7 +1986,11 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
       "", // notes
       "", // deactivated_ts_utc
       "",  // deactivation_reason
-      trace_id  // trace_id
+      trace_id, // trace_id
+      ...identityValues(gatewayIdentity),
+      gatewayIdentity.gateway_id,
+      "", // action_attempt_id (created on a fresh gateway action)
+      ""  // operational_action_record_id (Make-owned)
     ]);
   }
 
@@ -1945,7 +2004,7 @@ async function createInitialActionLinks({ sheets, lead_id, client, assigned_agen
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:P",
+    range: "ActionLinkMap!A:Y",
     valueInputOption: "RAW",
     requestBody: {
       values: rowsToInsert
@@ -2070,7 +2129,8 @@ async function appendReleaseQueueRow({
   release_due_ts_utc,
   release_reason,
   created_ts_utc,
-  notes
+  notes,
+  lifecycle_identity
 }) {
   await sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
@@ -2096,7 +2156,9 @@ async function appendReleaseQueueRow({
         "",                  // release_result
         "",                  // assigned_agent_id
         notes || "",         // notes
-        ""                   // dispatch_claimed_ts_utc
+        "",                  // dispatch_claimed_ts_utc
+        lifecycle_identity?.lifecycle_id || "",
+        lifecycle_identity?.policy_snapshot_id || ""
       ]]
     }
   });
@@ -2273,6 +2335,8 @@ exports._test = {
   projectionNotApplicable,
   recoverProjectionReadyIntake,
   recordProjectionRepairEvent,
+  appendReleaseQueueRow,
+  createInitialActionLinks,
   runDirectIntakeProjection,
   runLegacyMakeIntakeHandoff,
   setRuntime(runtime) {

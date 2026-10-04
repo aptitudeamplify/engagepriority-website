@@ -57,6 +57,34 @@ test("Legacy Make regression preserves the established request contract", async 
       email: "synthetic@example.invalid"
     });
     assert.equal(payload.created_ts_utc, "2026-09-30T10:00:02.000Z");
+    assert.equal(payload.lifecycle_id, "");
+    assert.equal(payload.assignment_id, "");
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("Legacy Make intake accepts additive lifecycle identity context", async () => {
+  let payload;
+  const originalFetch = global.fetch;
+  global.fetch = async (url, options) => {
+    payload = JSON.parse(options.body);
+    return { ok: true, status: 200 };
+  };
+  try {
+    const result = await intake._test.runLegacyMakeIntakeHandoff({
+      ...legacyRecord(),
+      lifecycle_id: "LEAD-LEGACY",
+      assignment_id: "as_assignment-1",
+      assignment_sequence: 1,
+      owner_epoch_id: "oe_owner-1",
+      agent_id_snapshot: "AGENT-1",
+      policy_snapshot_id: "ps_policy-1"
+    });
+    assert.equal(result.status, "LEGACY_MAKE_SUBMITTED");
+    assert.equal(payload.lifecycle_id, "LEAD-LEGACY");
+    assert.equal(payload.assignment_sequence, 1);
+    assert.equal(payload.agent_id_snapshot, "AGENT-1");
   } finally {
     global.fetch = originalFetch;
   }

@@ -1,4 +1,8 @@
 const { google } = require("googleapis");
+const { createHash, randomUUID } = require("crypto");
+const { createActionAttemptId } = require("./_shared/lifecycle-identity");
+
+const GATEWAY_ACTION_CLAIM_STORE = "gateway-action-claims";
 
 const MAKE_INITIAL_RESPONSE_WEBHOOK =
   process.env.MAKE_INITIAL_RESPONSE_WEBHOOK_URL;
@@ -7,6 +11,7 @@ const MAKE_OUTCOME_RESPONSE_WEBHOOK =
   process.env.MAKE_OUTCOME_RESPONSE_WEBHOOK_URL;
 
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
+const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 
 const noCacheHeaders = {
   "Content-Type": "text/html; charset=utf-8",
@@ -108,7 +113,7 @@ async function getSheetsClient() {
 async function lookupActionLinkMapRow(sheets, shortCode) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A1:O10000"
+    range: "ActionLinkMap!A1:Y10000"
   });
 
   const rawRows = res.data.values || [];
@@ -124,29 +129,230 @@ async function lookupActionLinkMapRow(sheets, shortCode) {
 
   return {
     ...rows[foundIndex],
-    _sheet_row_number: foundIndex + 2
+    _sheet_row_number: foundIndex + 2,
+    _headers: rawRows[0] || []
   };
 }
 
-async function claimActionLinkForDispatch(sheets, actionRow, claimedTsUtc) {
+function columnNumberToLetter(columnNumber) {
+  let value = columnNumber;
+  let result = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
+function actionAttemptIdForClaim(actionRow) {
+  const existing = String(actionRow?.action_attempt_id || "").trim();
+  if (existing) {
+    return existing;
+  }
+  const headerIndex = (actionRow?._headers || []).indexOf("action_attempt_id");
+  if (headerIndex === -1 || !actionRow?._sheet_row_number) {
+    return "";
+  }
+  return createActionAttemptId();
+}
+
+function gatewayActionClaimKey(actionRow, shortCode) {
+  const gatewayId = String(actionRow?.gateway_id || "").trim();
+  const stableIdentity = gatewayId
+    ? `gateway_id:${gatewayId}`
+    : `short_code:${String(shortCode || actionRow?.short_code || "").trim()}`;
+  return `v1/${createHash("sha256").update(stableIdentity).digest("hex")}`;
+}
+
+async function getGatewayActionClaimStore() {
+  const { getStore } = await import("@netlify/blobs");
+  return getStore({ name: GATEWAY_ACTION_CLAIM_STORE, consistency: "strong" });
+}
+
+function gatewayDispatchNote(actionRow, state, selectedAction, actionAttemptId, detail = "") {
+  const prior = String(actionRow?.notes || "").trim();
+  const marker = [
+    "NETLIFY_GATEWAY_DISPATCH",
+    `state=${state}`,
+    `action_attempt_id=${actionAttemptId || "LEGACY_COLUMN_UNAVAILABLE"}`,
+    `selected_action=${selectedAction}`,
+    detail
+  ].filter(Boolean).join("|");
+  return prior ? `${prior}\n${marker}` : marker;
+}
+
+async function claimActionLinkForDispatch(
+  sheets,
+  actionRow,
+  claimedTsUtc,
+  selectedAction,
+  actionAttemptId
+) {
   if (!actionRow?._sheet_row_number) {
     throw new Error("Cannot claim action link without sheet row number.");
   }
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: `ActionLinkMap!L${actionRow._sheet_row_number}`,
-    valueInputOption: "RAW",
-    requestBody: {
+  const data = [];
+  const actionAttemptHeaderIndex = (actionRow?._headers || [])
+    .indexOf("action_attempt_id");
+  if (actionAttemptId && actionAttemptHeaderIndex !== -1) {
+    data.push({
+      range: `ActionLinkMap!${columnNumberToLetter(actionAttemptHeaderIndex + 1)}` +
+        `${actionRow._sheet_row_number}`,
+      values: [[actionAttemptId]]
+    });
+  }
+  data.push(
+    {
+      range: `ActionLinkMap!L${actionRow._sheet_row_number}`,
       values: [[claimedTsUtc]]
+    },
+    {
+      range: `ActionLinkMap!M${actionRow._sheet_row_number}`,
+      values: [[gatewayDispatchNote(
+        actionRow,
+        "DISPATCH_ATTEMPTED",
+        selectedAction,
+        actionAttemptId
+      )]]
+    }
+  );
+
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    requestBody: {
+      valueInputOption: "RAW",
+      data
     }
   });
+  actionRow.action_attempt_id = actionAttemptId;
+  actionRow.used_ts_utc = claimedTsUtc;
+}
+
+async function establishGatewayActionClaim({
+  sheets,
+  claimStore,
+  actionRow,
+  shortCode,
+  selectedAction,
+  claimedTsUtc = new Date().toISOString()
+}) {
+  const store = claimStore || await getGatewayActionClaimStore();
+  const actionAttemptId = actionAttemptIdForClaim(actionRow);
+  const claimKey = gatewayActionClaimKey(actionRow, shortCode);
+  const claimRecord = {
+    version: 1,
+    gateway_id: String(actionRow?.gateway_id || "").trim(),
+    short_code: String(shortCode || actionRow?.short_code || "").trim(),
+    action_attempt_id: actionAttemptId,
+    selected_action: String(selectedAction || "").trim().toUpperCase(),
+    claimed_ts_utc: claimedTsUtc
+  };
+  const result = await store.set(
+    claimKey,
+    JSON.stringify(claimRecord),
+    { onlyIfNew: true }
+  );
+
+  if (!result?.modified) {
+    return {
+      won: false,
+      claimKey,
+      actionAttemptId: "",
+      claimedTsUtc: ""
+    };
+  }
+
+  await claimActionLinkForDispatch(
+    sheets,
+    actionRow,
+    claimedTsUtc,
+    claimRecord.selected_action,
+    actionAttemptId
+  );
+
+  return {
+    won: true,
+    claimKey,
+    actionAttemptId,
+    claimedTsUtc
+  };
+}
+
+async function recordGatewayDispatchResult({
+  sheets,
+  actionRow,
+  selectedAction,
+  actionAttemptId,
+  state,
+  detail = ""
+}) {
+  const note = gatewayDispatchNote(
+    actionRow,
+    state,
+    selectedAction,
+    actionAttemptId,
+    detail
+  );
+  let noteError = null;
+  try {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+      range: `ActionLinkMap!M${actionRow._sheet_row_number}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[note]] }
+    });
+  } catch (error) {
+    noteError = error;
+  }
+
+  if (state === "MAKE_HANDOFF_FAILED") {
+    let systemEventError = null;
+    try {
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: SHEET_ID,
+        range: "SystemEvents!A1",
+        valueInputOption: "RAW",
+        requestBody: {
+          values: [[
+            randomUUID(),
+            new Date().toISOString(),
+            actionRow.client_id || "",
+            "GATEWAY_MAKE_HANDOFF_FAILED",
+            actionAttemptId || actionRow.gateway_id || actionRow.lead_id || "",
+            "ERROR",
+            `Gateway Make handoff failed (${detail || "UNKNOWN"})`,
+            "netlify-handle-action",
+            "FALSE",
+            actionRow.trace_id || ""
+          ]]
+        }
+      });
+    } catch (error) {
+      systemEventError = error;
+      console.error("gateway_failure_system_event_error", {
+        action_attempt_id: actionAttemptId || "",
+        error_message: error.message
+      });
+    }
+    if (noteError && systemEventError) {
+      const evidenceError = new Error(
+        "Unable to persist gateway Make handoff failure evidence."
+      );
+      evidenceError.code = "GATEWAY_FAILURE_EVIDENCE_WRITE_FAILED";
+      evidenceError.cause = noteError;
+      throw evidenceError;
+    }
+  } else if (noteError) {
+    throw noteError;
+  }
 }
 
 async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: leadDataSpreadsheetId,
-    range: "LeadLog_Active!A1:BI10000"
+    range: "LeadLog_Active!A1:BO10000"
   });
 
   const rows = rowsToObjects(res.data.values || []);
@@ -160,7 +366,9 @@ async function lookupLeadRow(sheets, leadDataSpreadsheetId, leadId, clientId) {
 async function processAction({
   shortCode,
   selectedAction,
-  gatewayContext
+  gatewayContext,
+  actionRow,
+  actionAttemptId
 }) {
 
   let webhookUrl = null;
@@ -184,6 +392,14 @@ async function processAction({
       short_code: shortCode,
       gateway_context: gatewayContext,
       selected_action: selectedAction,
+      lifecycle_id: actionRow?.lifecycle_id || "",
+      assignment_id: actionRow?.assignment_id || "",
+      assignment_sequence: actionRow?.assignment_sequence || "",
+      owner_epoch_id: actionRow?.owner_epoch_id || "",
+      agent_id_snapshot: actionRow?.agent_id_snapshot || "",
+      policy_snapshot_id: actionRow?.policy_snapshot_id || "",
+      gateway_id: actionRow?.gateway_id || "",
+      action_attempt_id: actionAttemptId || "",
       action_trigger_source: "ACTION_GATEWAY_BUTTON",
       agent_action_ts_utc: new Date().toISOString()
     })
@@ -196,6 +412,48 @@ async function processAction({
     statusCode: response.status,
     body: text
   };
+}
+
+async function dispatchClaimedAction({
+  sheets,
+  shortCode,
+  selectedAction,
+  gatewayContext,
+  actionRow,
+  actionAttemptId
+}) {
+  let data;
+  try {
+    data = await processAction({
+      shortCode,
+      selectedAction,
+      gatewayContext,
+      actionRow,
+      actionAttemptId
+    });
+  } catch (error) {
+    await recordGatewayDispatchResult({
+      sheets,
+      actionRow,
+      selectedAction,
+      actionAttemptId,
+      state: "MAKE_HANDOFF_FAILED",
+      detail: `NETWORK_${String(error?.code || "ERROR")}`
+    });
+    throw error;
+  }
+
+  if (!data.ok) {
+    await recordGatewayDispatchResult({
+      sheets,
+      actionRow,
+      selectedAction,
+      actionAttemptId,
+      state: "MAKE_HANDOFF_FAILED",
+      detail: `HTTP_${data.statusCode}`
+    });
+  }
+  return data;
 }
 
 function validateActiveGatewayRow(actionRow) {
@@ -338,24 +596,6 @@ exports.handler = async function (event) {
             };
         }
 
-        const claimedTsUtc = new Date().toISOString();
-
-        await claimActionLinkForDispatch(
-            sheets,
-            actionRow,
-            claimedTsUtc
-        );
-
-        console.log("gateway_action_claimed", {
-            short_code: shortCode,
-            trace_id: actionRow.trace_id || "",
-            lead_id: actionRow.lead_id || "",
-            client_id: actionRow.client_id || "",
-            gateway_context: gatewayContext,
-            claimed_ts_utc: claimedTsUtc,
-            event_ts_utc: new Date().toISOString()
-        });
-
         const storedSelectedAction = String(
             actionRow.selected_action || ""
         ).trim().toUpperCase();
@@ -378,6 +618,33 @@ exports.handler = async function (event) {
             };
         }
 
+        const claim = await establishGatewayActionClaim({
+          sheets,
+          actionRow,
+          shortCode,
+          selectedAction: storedSelectedAction
+        });
+        if (!claim.won) {
+          return {
+            statusCode: 200,
+            headers: noCacheHeaders,
+            body: errorPage("Link already used or expired")
+          };
+        }
+        const durableActionAttemptId = claim.actionAttemptId;
+        const claimedTsUtc = claim.claimedTsUtc;
+
+        console.log("gateway_action_claimed", {
+            short_code: shortCode,
+            trace_id: actionRow.trace_id || "",
+            lead_id: actionRow.lead_id || "",
+            client_id: actionRow.client_id || "",
+            gateway_context: gatewayContext,
+            action_attempt_id: durableActionAttemptId,
+            claimed_ts_utc: claimedTsUtc,
+            event_ts_utc: new Date().toISOString()
+        });
+
         console.log("gateway_action_selected", {
             short_code: shortCode,
             trace_id: actionRow.trace_id || "",
@@ -389,10 +656,13 @@ exports.handler = async function (event) {
             event_ts_utc: new Date().toISOString()
         });
 
-        const data = await processAction({
+        const data = await dispatchClaimedAction({
+            sheets,
             shortCode,
             selectedAction: storedSelectedAction,
-            gatewayContext
+            gatewayContext,
+            actionRow,
+            actionAttemptId: durableActionAttemptId
         });
 
         console.log("gateway_make_handoff_result", {
@@ -523,9 +793,14 @@ exports.handler = async function (event) {
          };
        }
 
-       const freshActionRow = await lookupActionLinkMapRow(sheets, shortCode);
+      const claim = await establishGatewayActionClaim({
+        sheets,
+        actionRow,
+        shortCode,
+        selectedAction
+      });
 
-      if (!validateActiveGatewayRow(freshActionRow)) {
+      if (!claim.won) {
         console.log("gateway_invalid_state", {
           short_code: shortCode,
           trace_id: actionRow.trace_id || "",
@@ -533,7 +808,7 @@ exports.handler = async function (event) {
           client_id: clientId,
           gateway_context: gatewayContext,
           selected_action: selectedAction,
-          reason: "LINK_INVALID_AT_CLAIM_RECHECK",
+          reason: "GATEWAY_CLAIM_LOST",
           event_ts_utc: new Date().toISOString()
         });
 
@@ -543,14 +818,8 @@ exports.handler = async function (event) {
           body: errorPage("Link already used or expired")
         };
       }
-
-    const claimedTsUtc = new Date().toISOString();
-
-    await claimActionLinkForDispatch(
-        sheets,
-        freshActionRow,
-        claimedTsUtc
-    );
+      const durableActionAttemptId = claim.actionAttemptId;
+      const claimedTsUtc = claim.claimedTsUtc;
 
     console.log("gateway_action_claimed", {
         short_code: shortCode,
@@ -574,10 +843,13 @@ exports.handler = async function (event) {
         event_ts_utc: new Date().toISOString()
     });
 
-    const data = await processAction({
+    const data = await dispatchClaimedAction({
+        sheets,
         shortCode,
         selectedAction,
-        gatewayContext
+        gatewayContext,
+        actionRow,
+        actionAttemptId: durableActionAttemptId
     });
 
     console.log("gateway_make_handoff_result", {
@@ -895,4 +1167,16 @@ if (gatewayContext === "OUTCOME_GATEWAY") {
       body: errorPage("System error")
     };
   }
+};
+
+exports._test = {
+  actionAttemptIdForClaim,
+  claimActionLinkForDispatch,
+  dispatchClaimedAction,
+  establishGatewayActionClaim,
+  gatewayActionClaimKey,
+  gatewayDispatchNote,
+  processAction,
+  recordGatewayDispatchResult,
+  validateActiveGatewayRow
 };
