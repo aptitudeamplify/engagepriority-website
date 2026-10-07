@@ -16,6 +16,24 @@ const {
   createGatewayIdentity,
   identityValues
 } = require("./_shared/lifecycle-identity");
+const {
+  CONTRACTS,
+  DECISION_TYPES,
+  buildSemanticRequest,
+  normalizeSourceEventId,
+  routingStateFingerprint
+} = require("./_shared/routing-coordination-contract");
+const {
+  createRoutingCoordinationClient,
+  loadRoutingCoordinationConfig
+} = require("./_shared/routing-coordination-client");
+const {
+  createRoutingCoordinationObligationStore
+} = require("./_shared/routing-coordination-obligation-store");
+const {
+  coordinateRoutingCommit,
+  routingCoordinationMode
+} = require("./_shared/routing-coordination");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -60,6 +78,7 @@ body: JSON.stringify({ error: "Invalid request" })
 }
 
 const startTotal = Date.now();
+const routingStateMode = routingCoordinationMode();
 
 const timing = {
 total_ms: 0,
@@ -77,6 +96,14 @@ try {
 let t0 = Date.now();
 
 const leadPayload = parseLeadPayload(event);
+
+if (routingStateMode === "GAS_COORDINATED") {
+  try {
+    normalizeSourceEventId(leadPayload.source_event_id);
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: "INVALID_SOURCE_EVENT_ID" }) };
+  }
+}
 
 const trace_id = randomUUID();
 console.log("trace_id:", trace_id);
@@ -105,8 +132,8 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const sheets = intakeTestRuntime?.sheets || google.sheets({ version: "v4", auth });
-const leadId = generateLeadId();
-const lifecycleIdentity = createLifecycleIdentity({ leadId });
+let leadId = generateLeadId();
+let lifecycleIdentity = createLifecycleIdentity({ leadId });
 
 t0 = Date.now();
 const registryRes = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
@@ -147,6 +174,9 @@ const routingStates = rowsToObjects(routingRows);
 const intakeSourceMap = rowsToObjects(intakeSourceMapRows);
 
 const source_system = String(leadPayload.source_system || "WEBSITE").trim().toUpperCase();
+if (routingStateMode === "GAS_COORDINATED" && source_system !== "WEBSITE") {
+  return { statusCode: 400, body: JSON.stringify({ error: "INVALID_COORDINATED_SOURCE" }) };
+}
 const source_primary_key_type = "source_detail";
 const source_primary_key_value = intakeClientRef;
 
@@ -619,36 +649,115 @@ body: JSON.stringify({ error: "Invalid request" })
 }
 }
 
-const routingState = routingStates[0];
-
 const routingStrategy = String(client.routing_strategy || "").trim();
 
 if (!routingStrategy) {
   throw new Error(`Missing routing_strategy for client_id: ${client.client_id}`);
 }
 
-const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
+let assignmentResult;
+let assignmentIdentity;
+let routingState;
 
-if (!Number.isFinite(routingPointer) || routingPointer < 0) {
-  throw new Error(`Invalid routing_pointer: ${routingState.routing_pointer}`);
+if (routingStateMode === "GAS_COORDINATED") {
+  const logicalReference = {
+    logical_reference_contract: CONTRACTS.initialIntake,
+    client_id: client.client_id,
+    source_system: "WEBSITE",
+    source_path: "website-lead-form-v1",
+    source_event_id: normalizeSourceEventId(leadPayload.source_event_id)
+  };
+  const config = intakeTestRuntime?.routingCoordinationConfig || loadRoutingCoordinationConfig();
+  const coordinationClient = intakeTestRuntime?.routingCoordinationClient || createRoutingCoordinationClient({ config });
+  const obligationStore = intakeTestRuntime?.routingCoordinationObligationStore || createRoutingCoordinationObligationStore();
+
+  const buildAttempt = async ({ reason }) => {
+    let attemptRoutingRows = routingRows;
+    let attemptAgents = agents;
+    if (reason === "STALE") {
+      const refresh = await withSheetsReadRetry(() => sheets.spreadsheets.values.batchGet({
+        spreadsheetId: SHEET_ID,
+        ranges: ["Agents!A1:Z1000", "RoutingState!A1:Z1000"]
+      }));
+      attemptAgents = rowsToObjects(refresh.data.valueRanges?.[0]?.values || []);
+      attemptRoutingRows = refresh.data.valueRanges?.[1]?.values || [];
+    }
+    const attemptRoutingObjects = rowsToObjects(attemptRoutingRows);
+    const currentState = getCoordinatedRoutingState({
+      headers: attemptRoutingRows[0] || [],
+      routingStates: attemptRoutingObjects,
+      clientId: client.client_id
+    });
+    const currentAgents = attemptAgents.filter(agent =>
+      String(agent.client_id || "").trim() === client.client_id &&
+      String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE"
+    );
+    const result = executeAssignment({
+      routing_strategy: routingStrategy,
+      agents: currentAgents,
+      routing_pointer: currentState.routing_pointer
+    });
+    const candidateAssignmentIdentity = createAssignmentIdentity({
+      lifecycleIdentity,
+      assignedAgentId: result.assigned_agent_id
+    });
+    const stateFingerprint = routingStateFingerprint(currentState).fingerprint;
+    const request = buildSemanticRequest({
+      environment: config.environment,
+      decision_type: DECISION_TYPES.INITIAL_INTAKE,
+      client_id: client.client_id,
+      logical_reference: logicalReference,
+      expected_state: {
+        routing_state_version: currentState.routing_state_version,
+        routing_pointer: currentState.routing_pointer,
+        routing_state_fingerprint: stateFingerprint
+      },
+      proposal: {
+        selected_agent_id: result.assigned_agent_id,
+        routing_pointer_after: result.routing_pointer_after,
+        total_assignments_today_after: currentState.total_assignments_today + 1,
+        notes_after: currentState.notes
+      },
+      semantic_evidence: {}
+    });
+    return {
+      request,
+      continuation: {
+        lead_id: leadId,
+        lifecycle_identity: lifecycleIdentity,
+        assignment_identity: candidateAssignmentIdentity,
+        assignment_result: result
+      }
+    };
+  };
+
+  t0 = Date.now();
+  const coordinated = await coordinateRoutingCommit({
+    logicalReference,
+    environment: config.environment,
+    buildAttempt,
+    obligationStore,
+    client: coordinationClient
+  });
+  timing.assignment_compute_ms = Date.now() - t0;
+  leadId = coordinated.continuation.lead_id;
+  lifecycleIdentity = coordinated.continuation.lifecycle_identity;
+  assignmentIdentity = coordinated.continuation.assignment_identity;
+  assignmentResult = coordinated.continuation.assignment_result;
+  routingState = coordinated.response.result_payload;
+} else {
+  routingState = routingStates[0];
+  const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
+  if (!Number.isFinite(routingPointer) || routingPointer < 0) throw new Error(`Invalid routing_pointer: ${routingState.routing_pointer}`);
+  t0 = Date.now();
+  assignmentResult = executeAssignment({
+    routing_strategy: routingStrategy,
+    agents: eligibleAgents,
+    routing_pointer: routingPointer
+  });
+  timing.assignment_compute_ms = Date.now() - t0;
+  assignmentIdentity = createAssignmentIdentity({ lifecycleIdentity, assignedAgentId: assignmentResult.assigned_agent_id });
 }
-
-t0 = Date.now();
-
-console.log("intake_before_routing", {
-  trace_id,
-  lead_id: leadId,
-  client_id: client.client_id,
-  routing_strategy: routingStrategy
-});
-
-const assignmentResult = executeAssignment({
-  routing_strategy: routingStrategy,
-  agents: eligibleAgents,
-  routing_pointer: routingPointer
-});
-
-timing.assignment_compute_ms = Date.now() - t0;
 
 console.log("intake_after_assignment", {
   trace_id,
@@ -656,21 +765,20 @@ console.log("intake_after_assignment", {
   assigned_agent_id: assignmentResult.assigned_agent_id,
   routing_pointer_before: assignmentResult.routing_pointer_before,
   routing_pointer_after: assignmentResult.routing_pointer_after,
-  cycle_length: assignmentResult.cycle_length
+  cycle_length: assignmentResult.cycle_length,
+  routing_state_mode: routingStateMode
 });
 
-const assignedAgent = agents.find(agent => {
-  return agent.agent_id === assignmentResult.assigned_agent_id;
-});
-
-if (!assignedAgent) {
-  throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
+let assignedAgentPool = agents;
+if (routingStateMode === "GAS_COORDINATED") {
+  const assignedAgentRefresh = await withSheetsReadRetry(() => sheets.spreadsheets.values.get({
+    spreadsheetId: SHEET_ID,
+    range: "Agents!A1:Z1000"
+  }));
+  assignedAgentPool = rowsToObjects(assignedAgentRefresh.data.values || []);
 }
-
-const assignmentIdentity = createAssignmentIdentity({
-  lifecycleIdentity,
-  assignedAgentId: assignmentResult.assigned_agent_id
-});
+const assignedAgent = assignedAgentPool.find(agent => agent.agent_id === assignmentResult.assigned_agent_id);
+if (!assignedAgent) throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 
 const nowUtc = new Date().toISOString();
 const leadDataSpreadsheetId = client.lead_data_spreadsheet_id;
@@ -707,14 +815,14 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
 
 t0 = Date.now();
 
-await sheets.spreadsheets.values.update({
-  spreadsheetId: SHEET_ID,
-  range: "RoutingState!B2",
-  valueInputOption: "RAW",
-  requestBody: {
-    values: [[assignmentResult.routing_pointer_after]]
-  }
-});
+if (routingStateMode === "LEGACY_DIRECT") {
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: SHEET_ID,
+    range: "RoutingState!B2",
+    valueInputOption: "RAW",
+    requestBody: { values: [[assignmentResult.routing_pointer_after]] }
+  });
+}
 
 timing.sheets_write_pointer_ms = Date.now() - t0;
 
@@ -1065,7 +1173,7 @@ throw new Error("Invalid JSON payload received by intake-lead function.");
 }
 
 function rowsToObjects(rows) {
-const headers = rows[0];
+const headers = rows[0] || [];
 
 return rows.slice(1).map(row => {
 const obj = {};
@@ -1074,6 +1182,26 @@ obj[header] = row[index];
 });
 return obj;
 });
+}
+
+function getCoordinatedRoutingState({ headers, routingStates, clientId }) {
+  const required = [
+    "client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id",
+    "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"
+  ];
+  const missing = required.filter(header => !headers.includes(header));
+  if (missing.length) throw new Error(`RoutingState is missing required coordinated headers: ${missing.join(", ")}`);
+  const matches = routingStates.filter(row => String(row.client_id || "").trim() === String(clientId).trim());
+  if (matches.length !== 1) throw new Error(`RoutingState must contain exactly one row for client_id ${clientId}; found ${matches.length}.`);
+  const row = { ...matches[0] };
+  for (const field of ["routing_state_version", "routing_pointer", "total_assignments_today"]) {
+    if (!/^\d+$/.test(String(row[field] ?? ""))) throw new Error(`RoutingState ${field} must be a nonnegative integer.`);
+    row[field] = Number(row[field]);
+    if (!Number.isSafeInteger(row[field])) throw new Error(`RoutingState ${field} exceeds the safe integer range.`);
+  }
+  // Run the normative projection validator before the row is used for a decision.
+  routingStateFingerprint(row);
+  return row;
 }
 
 function getClientServiceWindowStatus(client, now = new Date()) {

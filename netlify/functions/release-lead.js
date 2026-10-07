@@ -6,11 +6,22 @@ const {
   createGatewayIdentity,
   identityValues
 } = require("./_shared/lifecycle-identity");
+const {
+  CONTRACTS,
+  DECISION_TYPES,
+  buildSemanticRequest,
+  routingStateFingerprint
+} = require("./_shared/routing-coordination-contract");
+const { createRoutingCoordinationClient, loadRoutingCoordinationConfig } = require("./_shared/routing-coordination-client");
+const { createRoutingCoordinationObligationStore } = require("./_shared/routing-coordination-obligation-store");
+const { coordinateRoutingCommit, routingCoordinationMode, routingOperationKey } = require("./_shared/routing-coordination");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
+let releaseTestRuntime = null;
 
 exports.handler = async (event, context) => {
+  const routingStateMode = routingCoordinationMode();
 
   if (event.httpMethod !== "POST") {
     return {
@@ -81,7 +92,7 @@ exports.handler = async (event, context) => {
     ]
   });
 
-  const sheets = google.sheets({
+  const sheets = releaseTestRuntime?.sheets || google.sheets({
     version: "v4",
     auth
   });
@@ -229,7 +240,8 @@ exports.handler = async (event, context) => {
 
   if (
     status !== "PENDING" &&
-    status !== "ACTIVE"
+    status !== "ACTIVE" &&
+    !(routingStateMode === "GAS_COORDINATED" && status === "PROCESSING")
   ) {
     return {
       statusCode: 409,
@@ -428,6 +440,16 @@ exports.handler = async (event, context) => {
     leadlog_row_number: leadLogRowNumber
   });
 
+  const coordinatedLogicalReference = routingStateMode === "GAS_COORDINATED"
+    ? { logical_reference_contract: CONTRACTS.afterHoursRelease, client_id: clientId, release_id }
+    : null;
+  const coordinatedConfig = routingStateMode === "GAS_COORDINATED"
+    ? (releaseTestRuntime?.routingCoordinationConfig || loadRoutingCoordinationConfig())
+    : null;
+  const coordinatedObligationStore = routingStateMode === "GAS_COORDINATED"
+    ? (releaseTestRuntime?.routingCoordinationObligationStore || createRoutingCoordinationObligationStore())
+    : null;
+
   const claimResult =
     await claimReleaseQueueByReleaseId({
       sheets,
@@ -436,7 +458,29 @@ exports.handler = async (event, context) => {
       nowUtc
     });
 
-  if (!claimResult.claimed) {
+  const resumableCoordinatedClaim =
+    routingStateMode === "GAS_COORDINATED" &&
+    claimResult.status === "RELEASE_ALREADY_CLAIMED";
+
+  if (resumableCoordinatedClaim) {
+    const operationKey = routingOperationKey(coordinatedConfig.environment, coordinatedLogicalReference);
+    const existingObligation = await coordinatedObligationStore.read(operationKey);
+    if (!existingObligation) {
+      return {
+        statusCode: 409,
+        body: JSON.stringify({
+          status: "RELEASE_CLAIMED_WITHOUT_COORDINATION_EVIDENCE",
+          release_id,
+          client_id: clientId,
+          lead_id: leadId,
+          routing_state_updated: false,
+          downstream_writes_enabled: false
+        })
+      };
+    }
+  }
+
+  if (!claimResult.claimed && !resumableCoordinatedClaim) {
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -511,20 +555,6 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const routingState =
-    routingStates.find(row => {
-      return String(row.client_id || "").trim() === clientId;
-    });
-
-  if (!routingState) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "RoutingState missing for client"
-      })
-    };
-  }
-
   const routingStrategy =
     String(clientRow[clientHeaders.indexOf("routing_strategy")] || "").trim();
 
@@ -537,27 +567,80 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const routingPointer =
-    parseInt(routingState.routing_pointer || "0", 10);
+  let routingState;
+  let assignmentResult;
+  let assignmentIdentity = null;
 
-  if (!Number.isFinite(routingPointer) || routingPointer < 0) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "Invalid routing_pointer"
-      })
+  if (routingStateMode === "GAS_COORDINATED") {
+    const logicalReference = coordinatedLogicalReference;
+    const config = coordinatedConfig;
+    const coordinationClient = releaseTestRuntime?.routingCoordinationClient || createRoutingCoordinationClient({ config });
+    const obligationStore = coordinatedObligationStore;
+    const buildAttempt = async ({ reason }) => {
+      let attemptRoutingValues = routingValues;
+      let attemptAgents = agents;
+      if (reason === "STALE") {
+        const [freshAgents, freshRouting] = await Promise.all([
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Agents!A1:Z10000" }),
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "RoutingState!A1:Z10000" })
+        ]);
+        attemptAgents = rowsToObjects(freshAgents.data.values || []);
+        attemptRoutingValues = freshRouting.data.values || [];
+      }
+      const currentState = getCoordinatedReleaseRoutingState({ values: attemptRoutingValues, clientId });
+      const currentAgents = attemptAgents.filter(agent =>
+        String(agent.client_id || "").trim() === clientId &&
+        String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE"
+      );
+      const result = routeByStrategy({ routing_strategy: routingStrategy, agents: currentAgents, routing_pointer: currentState.routing_pointer });
+      const candidateIdentity = heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
+        ? createAssignmentIdentity({ lifecycleIdentity: heldLifecycleIdentity, assignedAgentId: result.assigned_agent_id })
+        : null;
+      const request = buildSemanticRequest({
+        environment: config.environment,
+        decision_type: DECISION_TYPES.AFTER_HOURS_RELEASE,
+        client_id: clientId,
+        logical_reference: logicalReference,
+        expected_state: {
+          routing_state_version: currentState.routing_state_version,
+          routing_pointer: currentState.routing_pointer,
+          routing_state_fingerprint: routingStateFingerprint(currentState).fingerprint
+        },
+        proposal: {
+          selected_agent_id: result.assigned_agent_id,
+          routing_pointer_after: result.routing_pointer_after,
+          total_assignments_today_after: currentState.total_assignments_today + 1,
+          notes_after: currentState.notes
+        },
+        semantic_evidence: {}
+      });
+      return { request, continuation: { assignment_result: result, assignment_identity: candidateIdentity } };
     };
+    const coordinated = await coordinateRoutingCommit({ logicalReference, environment: config.environment, buildAttempt, obligationStore, client: coordinationClient });
+    assignmentResult = coordinated.continuation.assignment_result;
+    assignmentIdentity = coordinated.continuation.assignment_identity;
+    routingState = coordinated.response.result_payload;
+  } else {
+    routingState = routingStates.find(row => String(row.client_id || "").trim() === clientId);
+    if (!routingState) return { statusCode: 500, body: JSON.stringify({ error: "RoutingState missing for client" }) };
+    const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
+    if (!Number.isFinite(routingPointer) || routingPointer < 0) return { statusCode: 500, body: JSON.stringify({ error: "Invalid routing_pointer" }) };
+    assignmentResult = routeByStrategy({ routing_strategy: routingStrategy, agents: eligibleAgents, routing_pointer: routingPointer });
+    assignmentIdentity = heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
+      ? createAssignmentIdentity({ lifecycleIdentity: heldLifecycleIdentity, assignedAgentId: assignmentResult.assigned_agent_id })
+      : null;
   }
 
-  const assignmentResult =
-    routeByStrategy({
-      routing_strategy: routingStrategy,
-      agents: eligibleAgents,
-      routing_pointer: routingPointer
+  let assignedAgentPool = agents;
+  if (routingStateMode === "GAS_COORDINATED") {
+    const assignedAgentRefresh = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Agents!A1:Z10000"
     });
-
+    assignedAgentPool = rowsToObjects(assignedAgentRefresh.data.values || []);
+  }
   const assignedAgent =
-    eligibleAgents.find(agent => {
+    assignedAgentPool.find(agent => {
       return String(agent.agent_id || "").trim() ===
         String(assignmentResult.assigned_agent_id || "").trim();
     });
@@ -569,7 +652,6 @@ exports.handler = async (event, context) => {
   let downstreamStage =
     "IDENTITY_CREATE";
 
-  let assignmentIdentity = null;
   let actionLinks;
   let reminderQueue;
   let smsPayload;
@@ -580,17 +662,10 @@ exports.handler = async (event, context) => {
     downstreamStage =
       "IDENTITY_CREATE";
 
-    assignmentIdentity =
-      heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
-        ? createAssignmentIdentity({
-            lifecycleIdentity: heldLifecycleIdentity,
-            assignedAgentId: assignmentResult.assigned_agent_id
-          })
-        : null;
-
     downstreamStage =
       "ROUTINGSTATE_UPDATE";
 
+    if (routingStateMode === "LEGACY_DIRECT") {
       await updateRoutingStateAfterReleaseAssignment({
         sheets,
         spreadsheetId: SHEET_ID,
@@ -599,7 +674,8 @@ exports.handler = async (event, context) => {
         routingPointerAfter: assignmentResult.routing_pointer_after,
         assignedAgentId: assignmentResult.assigned_agent_id,
         nowUtc
-    });
+      });
+    }
 
     downstreamStage =
       "LEADLOG_UPDATE";
@@ -914,6 +990,26 @@ function rowsToObjects(rows) {
 
     return obj;
   });
+}
+
+function getCoordinatedReleaseRoutingState({ values, clientId }) {
+  const headers = values[0] || [];
+  const required = [
+    "client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id",
+    "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"
+  ];
+  const missing = required.filter(header => !headers.includes(header));
+  if (missing.length) throw new Error(`RoutingState is missing required coordinated headers: ${missing.join(", ")}`);
+  const matches = rowsToObjects(values).filter(row => String(row.client_id || "").trim() === clientId);
+  if (matches.length !== 1) throw new Error(`RoutingState must contain exactly one row for client_id ${clientId}; found ${matches.length}.`);
+  const row = { ...matches[0] };
+  for (const field of ["routing_state_version", "routing_pointer", "total_assignments_today"]) {
+    if (!/^\d+$/.test(String(row[field] ?? ""))) throw new Error(`RoutingState ${field} must be a nonnegative integer.`);
+    row[field] = Number(row[field]);
+    if (!Number.isSafeInteger(row[field])) throw new Error(`RoutingState ${field} exceeds the safe integer range.`);
+  }
+  routingStateFingerprint(row);
+  return row;
 }
 
 function getRequiredHeaderIndex(headers, headerName) {
@@ -1628,5 +1724,7 @@ async function markReleaseQueueFailed({
 exports._test = {
   createReleaseInitialActionLink,
   createReleaseReminderQueueRow,
-  updateLeadLogAfterReleaseAssignment
+  getCoordinatedReleaseRoutingState,
+  updateLeadLogAfterReleaseAssignment,
+  setRuntime(runtime) { releaseTestRuntime = runtime; }
 };

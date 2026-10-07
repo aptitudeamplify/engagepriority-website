@@ -1,0 +1,48 @@
+[
+  {
+    "name": "blank optional fields and integer normalization",
+    "raw": {
+      "client_id": " C-001 ",
+      "routing_pointer": "001",
+      "last_assigned_agent_id": null,
+      "last_assignment_timestamp": null,
+      "total_assignments_today": "0",
+      "notes": null,
+      "updated_ts_utc": null
+    },
+    "normalized": {
+      "client_id": "C-001",
+      "routing_pointer": 1,
+      "last_assigned_agent_id": "",
+      "last_assignment_timestamp": "",
+      "total_assignments_today": 0,
+      "notes": "",
+      "updated_ts_utc": ""
+    },
+    "canonical_json": "{\"client_id\":\"C-001\",\"last_assigned_agent_id\":\"\",\"last_assignment_timestamp\":\"\",\"notes\":\"\",\"routing_pointer\":1,\"total_assignments_today\":0,\"updated_ts_utc\":\"\"}",
+    "fingerprint": "sha256:24349d2b0435a74cfa42965746ad34dd928b692607b44ffb1b775e8fcbe1ec54"
+  },
+  {
+    "name": "unicode newline and UTC normalization",
+    "raw": {
+      "client_id": " C-É ",
+      "routing_pointer": 0,
+      "last_assigned_agent_id": "A-1",
+      "last_assignment_timestamp": "2026-10-06T14:45:12.037-05:00",
+      "total_assignments_today": "0007",
+      "notes": " Café\r\nnext ",
+      "updated_ts_utc": "2026-10-06T19:45:13Z"
+    },
+    "normalized": {
+      "client_id": "C-É",
+      "routing_pointer": 0,
+      "last_assigned_agent_id": "A-1",
+      "last_assignment_timestamp": "2026-10-06T19:45:12.037Z",
+      "total_assignments_today": 7,
+      "notes": " Café\nnext ",
+      "updated_ts_utc": "2026-10-06T19:45:13.000Z"
+    },
+    "canonical_json": "{\"client_id\":\"C-É\",\"last_assigned_agent_id\":\"A-1\",\"last_assignment_timestamp\":\"2026-10-06T19:45:12.037Z\",\"notes\":\" Café\\nnext \",\"routing_pointer\":0,\"total_assignments_today\":7,\"updated_ts_utc\":\"2026-10-06T19:45:13.000Z\"}",
+    "fingerprint": "sha256:08a0bd5bf8f25d732be5786ca18a99d282637b0f984ee9484a256f12df791c7f"
+  }
+]

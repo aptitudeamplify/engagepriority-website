@@ -90,18 +90,9 @@ const assignmentResult = routeByStrategy({
 
 timing.assignment_compute_ms = Date.now() - t0;
 
-t0 = Date.now();
-
-await sheets.spreadsheets.values.update({
-  spreadsheetId: SHEET_ID,
-  range: "RoutingState!B2",
-  valueInputOption: "RAW",
-  requestBody: {
-    values: [[assignmentResult.routing_pointer_after]]
-  }
-});
-
-timing.sheets_write_pointer_ms = Date.now() - t0;
+// Deliberately read/compute-only: this diagnostic must never compete as a
+// RoutingState writer.
+timing.sheets_write_pointer_ms = 0;
 timing.total_ms = Date.now() - startTotal;
 
 return {
@@ -120,7 +111,7 @@ return {
       cycle_preview: assignmentResult.cycle_preview
     },
     agents_considered: assignmentResult.active_agents_count,
-    message: "Test completed"
+    message: "Read/compute-only test completed; no RoutingState mutation occurred."
   })
 };
 
