@@ -1,5 +1,10 @@
 const { createHash } = require("crypto");
-const { canonicalJson, normalizeTimestamp } = require("./routing-coordination-contract");
+const {
+  DECISION_TYPES,
+  canonicalJson,
+  normalizeTimestamp,
+  validateSemanticRequest
+} = require("./routing-coordination-contract");
 
 const ACCEPTED = new Set(["COMMITTED", "ALREADY_COMMITTED"]);
 const SAME_REQUEST_RETRY = new Set([
@@ -47,6 +52,145 @@ function assertAttempt(attempt) {
   return attempt;
 }
 
+const VALID_STEP_STATUS = new Set(["PENDING", "COMPLETED", "DISPATCHING", "AMBIGUOUS", "MANUAL_RECONCILIATION"]);
+
+function assertText(value, field) {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid routing obligation field: ${field}`);
+}
+
+function assertExactKeys(value, allowed, label) {
+  const actual = Object.keys(value).sort();
+  const expected = [...allowed].sort();
+  if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+    throw new Error(`${label} has unknown or missing keys.`);
+  }
+}
+
+function validateContinuation(continuation, decisionType) {
+  if (!continuation || typeof continuation !== "object" || Array.isArray(continuation)) throw new Error("Routing obligation continuation is invalid.");
+  assertExactKeys(continuation, decisionType === DECISION_TYPES.INITIAL_INTAKE
+    ? ["operation_kind", "lead_id", "lifecycle_identity", "assignment_identity", "assignment_result", "plan"]
+    : ["operation_kind", "release_id", "lead_id", "lifecycle_identity", "assignment_identity", "assignment_result", "plan"], "Routing obligation continuation");
+  if (continuation.operation_kind !== decisionType) throw new Error("Routing obligation continuation decision mismatch.");
+  assertText(continuation.lead_id, "continuation.lead_id");
+  if (decisionType === DECISION_TYPES.INITIAL_INTAKE &&
+      (!continuation.lifecycle_identity || continuation.lifecycle_identity.lifecycle_id !== continuation.lead_id)) {
+    throw new Error("Routing obligation lifecycle identity mismatch.");
+  }
+  if (continuation.lifecycle_identity) {
+    assertExactKeys(continuation.lifecycle_identity, ["lifecycle_id", "policy_snapshot_id"], "Routing obligation lifecycle identity");
+    if (continuation.lifecycle_identity.lifecycle_id !== continuation.lead_id) throw new Error("Routing obligation lifecycle identity mismatch.");
+    assertText(continuation.lifecycle_identity.policy_snapshot_id, "continuation.policy_snapshot_id");
+  }
+  if (continuation.assignment_identity !== null) {
+    assertExactKeys(continuation.assignment_identity, ["lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id"], "Routing obligation assignment identity");
+    for (const field of ["lifecycle_id", "policy_snapshot_id", "assignment_id", "owner_epoch_id", "agent_id_snapshot"]) {
+      assertText(continuation.assignment_identity?.[field], `continuation.assignment_identity.${field}`);
+    }
+    if (!Number.isInteger(Number(continuation.assignment_identity.assignment_sequence)) || Number(continuation.assignment_identity.assignment_sequence) < 1) {
+      throw new Error("Routing obligation assignment sequence is invalid.");
+    }
+    if (continuation.assignment_identity.lifecycle_id !== continuation.lead_id) throw new Error("Routing obligation assignment lifecycle mismatch.");
+  }
+  assertExactKeys(continuation.assignment_result, ["assigned_agent_id", "routing_pointer_before", "routing_pointer_after", "cycle_length", "cycle_preview", "active_agents_count"], "Routing obligation assignment result");
+  assertText(continuation.assignment_result?.assigned_agent_id, "continuation.assignment_result.assigned_agent_id");
+  for (const field of ["routing_pointer_before", "routing_pointer_after", "cycle_length", "active_agents_count"]) {
+    if (!Number.isSafeInteger(continuation.assignment_result[field]) || continuation.assignment_result[field] < 0) {
+      throw new Error(`Routing obligation assignment result is invalid: ${field}`);
+    }
+  }
+  if (!Array.isArray(continuation.assignment_result.cycle_preview) ||
+      continuation.assignment_result.cycle_preview.some(value => typeof value !== "string" || !value)) {
+    throw new Error("Routing obligation assignment cycle is invalid.");
+  }
+  if (continuation.assignment_identity && continuation.assignment_identity.agent_id_snapshot !== continuation.assignment_result.assigned_agent_id) {
+    throw new Error("Routing obligation assignment winner mismatch.");
+  }
+  if (decisionType === DECISION_TYPES.AFTER_HOURS_RELEASE) assertText(continuation.release_id, "continuation.release_id");
+  if (!continuation.plan || typeof continuation.plan !== "object" || Array.isArray(continuation.plan)) throw new Error("Routing obligation continuation plan is missing.");
+  const planKeys = ["trace_id", "created_ts_utc", "reminder_due_ts_utc", "lifecycle_event_id", ...(continuation.assignment_identity ? ["gateway_id"] : [])];
+  assertExactKeys(continuation.plan, planKeys, "Routing obligation continuation plan");
+  assertText(continuation.plan.trace_id, "continuation.plan.trace_id");
+  assertText(continuation.plan.created_ts_utc, "continuation.plan.created_ts_utc");
+  assertText(continuation.plan.lifecycle_event_id, "continuation.plan.lifecycle_event_id");
+  assertText(continuation.plan.reminder_due_ts_utc, "continuation.plan.reminder_due_ts_utc");
+  normalizeTimestamp(continuation.plan.created_ts_utc, "continuation.plan.created_ts_utc");
+  normalizeTimestamp(continuation.plan.reminder_due_ts_utc, "continuation.plan.reminder_due_ts_utc");
+  if (continuation.assignment_identity) {
+    assertText(continuation.plan.gateway_id, "continuation.plan.gateway_id");
+  }
+  return continuation;
+}
+
+function validateConsequenceState(value, decisionType) {
+  if (value === undefined) return;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Routing obligation consequence state is invalid.");
+  const allowedSteps = decisionType === DECISION_TYPES.INITIAL_INTAKE
+    ? new Set(["LEAD_LOG", "LEAD_INDEX", "REMINDER", "ACTION_LINK", "IDEMPOTENCY", "SMS", "LEGACY_PROJECTION"])
+    : new Set(["LEAD_LOG", "ACTION_LINK", "REMINDER", "SMS", "RELEASE_QUEUE", "LIFECYCLE_EVENT"]);
+  for (const [step, state] of Object.entries(value)) {
+    assertText(step, "consequence step");
+    if (!allowedSteps.has(step)) throw new Error(`Unknown routing continuation step: ${step}`);
+    if (!state || typeof state !== "object" || !VALID_STEP_STATUS.has(state.status)) {
+      throw new Error(`Routing obligation consequence state is invalid: ${step}`);
+    }
+    assertExactKeys(state, ["status", "evidence", "updated_ts_utc"], `Routing obligation consequence state: ${step}`);
+    if (!state.evidence || typeof state.evidence !== "object" || Array.isArray(state.evidence)) throw new Error(`Routing obligation consequence evidence is invalid: ${step}`);
+    if (state.updated_ts_utc) normalizeTimestamp(state.updated_ts_utc, `consequence_state.${step}.updated_ts_utc`);
+  }
+}
+
+function validateRoutingObligation({ record, key, environment, logicalReference, verifyResponse }) {
+  if (!record || typeof record !== "object" || Array.isArray(record)) throw new Error("Routing coordination obligation is malformed.");
+  const commonKeys = ["schema_version", "phase", "environment", "operation_key", "logical_reference", "semantic_request", "continuation", "created_ts_utc", "updated_ts_utc"];
+  if (record.stale_recomputations !== undefined) commonKeys.push("stale_recomputations");
+  const phaseKeys = record.phase === "ACCEPTED"
+    ? [...commonKeys, "coordinator_response", "accepted_ts_utc", "consequence_state"]
+    : [...commonKeys, ...(record.consequence_state === undefined ? [] : ["consequence_state"])];
+  assertExactKeys(record, phaseKeys, "Routing coordination obligation");
+  if (record.schema_version !== 2) throw new Error("Unsupported routing coordination obligation schema version.");
+  if (record.stale_recomputations !== undefined &&
+      (!Number.isSafeInteger(record.stale_recomputations) || record.stale_recomputations < 1)) {
+    throw new Error("Routing coordination obligation stale recomputation count is invalid.");
+  }
+  if (!new Set(["PENDING", "ACCEPTED"]).has(record.phase)) throw new Error("Unsupported routing coordination obligation phase.");
+  if (record.environment !== environment) throw new Error("Routing coordination obligation environment mismatch.");
+  if (record.operation_key !== key || routingOperationKey(environment, logicalReference) !== key) {
+    throw new Error("Routing coordination obligation logical key mismatch.");
+  }
+  if (canonicalJson(record.logical_reference) !== canonicalJson(logicalReference)) {
+    throw new Error("Routing coordination obligation logical reference mismatch.");
+  }
+  const request = validateSemanticRequest(record.semantic_request);
+  if (request.environment !== environment || request.client_id !== logicalReference.client_id ||
+      canonicalJson(request.logical_reference) !== canonicalJson(logicalReference)) {
+    throw new Error("Routing coordination obligation request binding mismatch.");
+  }
+  validateContinuation(record.continuation, request.decision_type);
+  if (record.continuation.assignment_result.assigned_agent_id !== request.proposal.selected_agent_id) {
+    throw new Error("Routing obligation continuation does not match the semantic routing winner.");
+  }
+  if (record.continuation.assignment_result.routing_pointer_after !== request.proposal.routing_pointer_after) {
+    throw new Error("Routing obligation continuation does not match the semantic routing pointer.");
+  }
+  validateConsequenceState(record.consequence_state, request.decision_type);
+  normalizeTimestamp(record.created_ts_utc, "created_ts_utc");
+  normalizeTimestamp(record.updated_ts_utc, "updated_ts_utc");
+  if (record.phase === "PENDING") {
+    if (record.coordinator_response || record.accepted_ts_utc || Object.keys(record.consequence_state || {}).length) {
+      throw new Error("Pending routing obligation has impossible accepted state.");
+    }
+  } else {
+    if (typeof verifyResponse !== "function") throw new Error("Accepted routing obligation cannot be verified.");
+    const verified = verifyResponse(record.coordinator_response, request);
+    if (!ACCEPTED.has(verified.result_status)) throw new Error("Accepted routing obligation has a non-accepted result.");
+    assertAcceptedResult(verified, request);
+    assertText(record.accepted_ts_utc, "accepted_ts_utc");
+    normalizeTimestamp(record.accepted_ts_utc, "accepted_ts_utc");
+  }
+  return record;
+}
+
 async function coordinateRoutingCommit({
   logicalReference,
   environment,
@@ -66,8 +210,10 @@ async function coordinateRoutingCommit({
   if (!stored) {
     const attempt = assertAttempt(await buildAttempt({ reason: "INITIAL" }));
     const candidate = {
-      schema_version: 1,
+      schema_version: 2,
       phase: "PENDING",
+      environment,
+      operation_key: key,
       logical_reference: logicalReference,
       semantic_request: attempt.request,
       continuation: attempt.continuation,
@@ -81,8 +227,15 @@ async function coordinateRoutingCommit({
   let staleCount = 0;
   while (true) {
     const record = stored.record;
+    validateRoutingObligation({
+      record,
+      key,
+      environment,
+      logicalReference,
+      verifyResponse: client.verify
+    });
     if (record.phase === "ACCEPTED") {
-      return { key, response: record.coordinator_response, continuation: record.continuation, replayed: true };
+      return { key, response: record.coordinator_response, continuation: record.continuation, obligation: record, replayed: true };
     }
     if (record.phase !== "PENDING" || !record.semantic_request) throw new Error("Routing coordination obligation is invalid.");
 
@@ -110,10 +263,13 @@ async function coordinateRoutingCommit({
 
     if (ACCEPTED.has(response.result_status)) {
       assertAcceptedResult(response, record.semantic_request);
+      if (typeof client.verify !== "function") throw new Error("Coordinator client cannot verify accepted responses.");
+      client.verify(response, record.semantic_request);
       const accepted = {
         ...record,
         phase: "ACCEPTED",
         coordinator_response: response,
+        consequence_state: record.consequence_state || {},
         accepted_ts_utc: now(),
         updated_ts_utc: now()
       };
@@ -123,7 +279,7 @@ async function coordinateRoutingCommit({
         continue;
       }
       if (onAccepted) await onAccepted({ key, response, continuation: accepted.continuation });
-      return { key, response, continuation: accepted.continuation, replayed: false };
+      return { key, response, continuation: accepted.continuation, obligation: accepted, replayed: false };
     }
 
     if (response.result_status === "ROUTING_STATE_STALE") {
@@ -158,5 +314,6 @@ async function coordinateRoutingCommit({
 module.exports = {
   coordinateRoutingCommit,
   routingCoordinationMode,
-  routingOperationKey
+  routingOperationKey,
+  validateRoutingObligation
 };

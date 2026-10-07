@@ -220,6 +220,10 @@ function normalizeLogicalReference(decisionType, value) {
 
 function buildSemanticRequest(input) {
   assertPlainObject(input, "routing request");
+  exactKeys(input, [
+    "environment", "decision_type", "client_id", "logical_reference",
+    "expected_state", "proposal", "semantic_evidence"
+  ], "routing request input");
   const decisionType = normalizeIdentifier(input.decision_type, "decision_type");
   if (!Object.values(DECISION_TYPES).includes(decisionType)) throw new Error("Unsupported routing decision type.");
   exactKeys(input.semantic_evidence || {}, [], "semantic_evidence");
@@ -276,6 +280,26 @@ function buildSemanticRequest(input) {
   return { ...base, routing_commit_id, request_fingerprint: fingerprint(requestProjection) };
 }
 
+function validateSemanticRequest(request) {
+  exactKeys(request, [
+    "environment", "action_contract", "decision_type", "client_id", "logical_reference",
+    "expected_state", "proposal", "semantic_evidence", "routing_commit_id", "request_fingerprint"
+  ], "semantic request");
+  if (request.action_contract !== CONTRACTS.action) throw new Error("Unsupported routing action contract.");
+  const rebuilt = buildSemanticRequest({
+    environment: request.environment,
+    decision_type: request.decision_type,
+    client_id: request.client_id,
+    logical_reference: request.logical_reference,
+    expected_state: request.expected_state,
+    proposal: request.proposal,
+    semantic_evidence: request.semantic_evidence
+  });
+  if (rebuilt.routing_commit_id !== request.routing_commit_id) throw new Error("Persisted routing commit ID mismatch.");
+  if (rebuilt.request_fingerprint !== request.request_fingerprint) throw new Error("Persisted routing request fingerprint mismatch.");
+  return rebuilt;
+}
+
 function requestSigningProjection(request, auth) {
   return {
     signing_contract: CONTRACTS.requestSigning,
@@ -301,7 +325,19 @@ function safeEqualHex(left, right) {
 }
 
 module.exports = {
-  CONTRACTS, DECISION_TYPES, canonicalJson, fingerprint, hmacHex, normalizeNonnegativeInteger,
-  normalizeSourceEventId, normalizeTimestamp, projectRoutingState, requestSigningProjection,
-  routingStateFingerprint, safeEqualHex, buildSemanticRequest, normalizeSemanticTree
+  CONTRACTS,
+  DECISION_TYPES,
+  buildSemanticRequest,
+  canonicalJson,
+  fingerprint,
+  hmacHex,
+  normalizeNonnegativeInteger,
+  normalizeSemanticTree,
+  normalizeSourceEventId,
+  normalizeTimestamp,
+  projectRoutingState,
+  requestSigningProjection,
+  routingStateFingerprint,
+  safeEqualHex,
+  validateSemanticRequest
 };

@@ -106,7 +106,11 @@ function createRoutingCoordinationClient({ config = loadRoutingCoordinationConfi
     // A signed response is authoritative regardless of HTTP transport status.
     return verifyCoordinatorResponse(payload, request, config);
   }
-  return { commit, config: { ...config, requestSecret: undefined, responseSecret: undefined } };
+  return {
+    commit,
+    verify: (response, request) => verifyCoordinatorResponse(response, request, config),
+    config: { ...config, requestSecret: undefined, responseSecret: undefined }
+  };
 }
 
 module.exports = {

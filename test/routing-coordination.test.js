@@ -18,7 +18,9 @@ const {
 } = require("../netlify/functions/_shared/routing-coordination-client");
 const {
   coordinateRoutingCommit,
-  routingCoordinationMode
+  routingCoordinationMode,
+  routingOperationKey,
+  validateRoutingObligation
 } = require("../netlify/functions/_shared/routing-coordination");
 const producer = require("../assets/initial-intake-delivery");
 
@@ -87,6 +89,43 @@ function signedResponse(request, overrides = {}) {
   delete response.signature;
   response.signature = hmacHex(config.responseSecret, response);
   return response;
+}
+
+function validContinuation(request, { leadId = "L-1", releaseId = "release-001" } = {}) {
+  const assignment = {
+    lifecycle_id: leadId,
+    policy_snapshot_id: "ps-1",
+    assignment_id: "as-1",
+    assignment_sequence: 1,
+    owner_epoch_id: "oe-1",
+    agent_id_snapshot: request.proposal.selected_agent_id
+  };
+  return {
+    operation_kind: request.decision_type,
+    ...(request.decision_type === DECISION_TYPES.AFTER_HOURS_RELEASE ? { release_id: releaseId } : {}),
+    lead_id: leadId,
+    lifecycle_identity: { lifecycle_id: leadId, policy_snapshot_id: "ps-1" },
+    assignment_identity: assignment,
+    assignment_result: {
+      assigned_agent_id: request.proposal.selected_agent_id,
+      routing_pointer_before: request.expected_state.routing_pointer,
+      routing_pointer_after: request.proposal.routing_pointer_after,
+      cycle_length: 3,
+      cycle_preview: [request.proposal.selected_agent_id],
+      active_agents_count: 1
+    },
+    plan: {
+      trace_id: "trace-1",
+      created_ts_utc: "2026-10-07T12:00:00.000Z",
+      reminder_due_ts_utc: "2026-10-07T12:15:00.000Z",
+      lifecycle_event_id: "event-1",
+      gateway_id: "gw-1"
+    }
+  };
+}
+
+function verifiedClient(commit) {
+  return { commit, verify: response => response };
 }
 
 function memoryStore() {
@@ -188,9 +227,9 @@ test("ambiguous result survives a fresh invocation and replays the exact semanti
   await assert.rejects(() => coordinateRoutingCommit({
     logicalReference,
     environment: "TEST",
-    buildAttempt: async () => ({ request, continuation: { lead_id: "L-1" } }),
+    buildAttempt: async () => ({ request, continuation: validContinuation(request) }),
     obligationStore: store,
-    client: { commit: async value => { seen.push(structuredClone(value)); const error = new Error("timeout"); error.code = "ROUTING_COORDINATOR_AMBIGUOUS"; throw error; } },
+    client: verifiedClient(async value => { seen.push(structuredClone(value)); const error = new Error("timeout"); error.code = "ROUTING_COORDINATOR_AMBIGUOUS"; throw error; }),
     maxSameRequestAttempts: 1
   }), /transport|timeout/i);
   const result = await coordinateRoutingCommit({
@@ -198,7 +237,7 @@ test("ambiguous result survives a fresh invocation and replays the exact semanti
     environment: "TEST",
     buildAttempt: async () => { throw new Error("must use stored attempt"); },
     obligationStore: store,
-    client: { commit: async value => { seen.push(structuredClone(value)); return signedResponse(value, { result_status: "ALREADY_COMMITTED" }); } }
+    client: verifiedClient(async value => { seen.push(structuredClone(value)); return signedResponse(value, { result_status: "ALREADY_COMMITTED" }); })
   });
   assert.deepEqual(seen[0], seen[1]);
   assert.equal(result.continuation.lead_id, "L-1");
@@ -212,9 +251,9 @@ test("accepted response persisted before a simulated Netlify crash prevents a se
   await assert.rejects(() => coordinateRoutingCommit({
     logicalReference: request.logical_reference,
     environment: "TEST",
-    buildAttempt: async () => ({ request, continuation: { identity: "stable" } }),
+    buildAttempt: async () => ({ request, continuation: validContinuation(request) }),
     obligationStore: store,
-    client: { commit: async value => { calls += 1; return signedResponse(value); } },
+    client: verifiedClient(async value => { calls += 1; return signedResponse(value); }),
     onAccepted: async () => { throw new Error("simulated crash"); }
   }), /simulated crash/);
   const replay = await coordinateRoutingCommit({
@@ -222,10 +261,10 @@ test("accepted response persisted before a simulated Netlify crash prevents a se
     environment: "TEST",
     buildAttempt: async () => { throw new Error("not called"); },
     obligationStore: store,
-    client: { commit: async () => { calls += 1; throw new Error("not called"); } }
+    client: verifiedClient(async () => { calls += 1; throw new Error("not called"); })
   });
   assert.equal(calls, 1);
-  assert.equal(replay.continuation.identity, "stable");
+  assert.equal(replay.continuation.assignment_identity.assignment_id, "as-1");
   assert.equal(replay.replayed, true);
 });
 
@@ -241,27 +280,27 @@ test("signed stale result permits bounded recomputation; busy and inconsistent n
     logicalReference: initial.logical_reference,
     environment: "TEST",
     buildAttempt: async ({ reason }) => reason === "INITIAL"
-      ? { request: initial, continuation: { winner: "A-2" } }
-      : { request: revised, continuation: { winner: "A-3" } },
+      ? { request: initial, continuation: validContinuation(initial) }
+      : { request: revised, continuation: validContinuation(revised) },
     obligationStore: store,
-    client: { commit: async request => {
+    client: verifiedClient(async request => {
       sent.push(request.routing_commit_id);
       return sent.length === 1
         ? signedResponse(request, { result_status: "ROUTING_STATE_STALE", result_payload: { current: true } })
         : signedResponse(request);
-    } }
+    })
   });
   assert.notEqual(sent[0], sent[1]);
-  assert.equal(result.continuation.winner, "A-3");
+  assert.equal(result.continuation.assignment_result.assigned_agent_id, "A-3");
 
   for (const status of ["ROUTING_BUSY_REASSIGNMENT_RECOVERY", "ROUTING_RECOVERY_INCONSISTENT"]) {
     const isolated = memoryStore();
     await assert.rejects(() => coordinateRoutingCommit({
       logicalReference: initial.logical_reference,
       environment: "TEST",
-      buildAttempt: async () => ({ request: initial, continuation: {} }),
+      buildAttempt: async () => ({ request: initial, continuation: validContinuation(initial) }),
       obligationStore: isolated,
-      client: { commit: async request => signedResponse(request, { result_status: status, result_payload: {} }) },
+      client: verifiedClient(async request => signedResponse(request, { result_status: status, result_payload: {} })),
       maxSameRequestAttempts: 1
     }));
   }
@@ -274,20 +313,20 @@ test("lock timeout retries the exact request only within the bounded budget", as
   const result = await coordinateRoutingCommit({
     logicalReference: request.logical_reference,
     environment: "TEST",
-    buildAttempt: async () => ({ request, continuation: { stable: true } }),
+    buildAttempt: async () => ({ request, continuation: validContinuation(request) }),
     obligationStore: store,
-    client: { commit: async value => {
+    client: verifiedClient(async value => {
       sent.push(structuredClone(value));
       return sent.length < 3
         ? signedResponse(value, { result_status: "ROUTING_LOCK_TIMEOUT", result_payload: { retryable: true } })
         : signedResponse(value);
-    } },
+    }),
     retryDelayMs: 0
   });
   assert.equal(sent.length, 3);
   assert.deepEqual(sent[0], sent[1]);
   assert.deepEqual(sent[1], sent[2]);
-  assert.equal(result.continuation.stable, true);
+  assert.equal(result.continuation.lead_id, "L-1");
 });
 
 test("after-hours release ambiguity survives a fresh invocation with stable identity continuation", async () => {
@@ -309,9 +348,9 @@ test("after-hours release ambiguity survives a fresh invocation with stable iden
   await assert.rejects(() => coordinateRoutingCommit({
     logicalReference: request.logical_reference,
     environment: "TEST",
-    buildAttempt: async () => ({ request, continuation: { assignment_id: "as_stable" } }),
+    buildAttempt: async () => ({ request, continuation: validContinuation(request) }),
     obligationStore: store,
-    client: { commit: async () => { const error = new Error("lost"); error.code = "ROUTING_COORDINATOR_AMBIGUOUS"; throw error; } },
+    client: verifiedClient(async () => { const error = new Error("lost"); error.code = "ROUTING_COORDINATOR_AMBIGUOUS"; throw error; }),
     maxSameRequestAttempts: 1
   }));
   const replay = await coordinateRoutingCommit({
@@ -319,10 +358,38 @@ test("after-hours release ambiguity survives a fresh invocation with stable iden
     environment: "TEST",
     buildAttempt: async () => { throw new Error("not called"); },
     obligationStore: store,
-    client: { commit: async value => { assert.deepEqual(value, request); first = false; return signedResponse(value, { result_status: "ALREADY_COMMITTED" }); } }
+    client: verifiedClient(async value => { assert.deepEqual(value, request); first = false; return signedResponse(value, { result_status: "ALREADY_COMMITTED" }); })
   });
   assert.equal(first, false);
-  assert.equal(replay.continuation.assignment_id, "as_stable");
+  assert.equal(replay.continuation.assignment_identity.assignment_id, "as-1");
+});
+
+test("concurrent claimed-release recovery persists one semantic winner and reuses it", async () => {
+  const request = buildSemanticRequest({
+    environment: "TEST",
+    decision_type: DECISION_TYPES.AFTER_HOURS_RELEASE,
+    client_id: "C-001",
+    logical_reference: { logical_reference_contract: CONTRACTS.afterHoursRelease, client_id: "C-001", release_id: "release-race" },
+    expected_state: { routing_state_version: 4, routing_pointer: 1, routing_state_fingerprint: `sha256:${"a".repeat(64)}` },
+    proposal: { selected_agent_id: "A-2", routing_pointer_after: 2, total_assignments_today_after: 5, notes_after: "" },
+    semantic_evidence: {}
+  });
+  const store = memoryStore();
+  const sent = [];
+  const run = () => coordinateRoutingCommit({
+    logicalReference: request.logical_reference,
+    environment: "TEST",
+    buildAttempt: async () => ({ request, continuation: validContinuation(request, { releaseId: "release-race" }) }),
+    obligationStore: store,
+    client: verifiedClient(async value => { sent.push(value.routing_commit_id); return signedResponse(value); })
+  });
+  const results = await Promise.all([run(), run()]);
+  assert.ok(sent.length >= 1);
+  assert.equal(new Set(sent).size, 1);
+  assert.equal(results[0].continuation.assignment_identity.assignment_id, results[1].continuation.assignment_identity.assignment_id);
+  const replay = await run();
+  assert.equal(replay.replayed, true);
+  assert.equal(sent.length <= 2, true, "GAS idempotency may observe concurrent exact retries but never a different semantic request");
 });
 
 test("coordinated intake rejects a missing source event and never fabricates one", async () => {
@@ -353,15 +420,29 @@ test("coordinated intake commits through the client and performs no direct Routi
   const agents = [["agent_id", "client_id", "agent_status", "assignment_weight", "priority_slot", "agent_phone"], ["A-1", "C-001", "ACTIVE", "1", "1", "+15555550100"]];
   const routing = [["client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id", "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"], ["C-001", "4", "0", "", "", "7", "keep", ""]];
   const sourceMap = [["source_system", "source_primary_key_type", "source_primary_key_value", "client_id", "status"], ["WEBSITE", "source_detail", "test-form", "C-001", "ACTIVE"]];
+  const tables = {
+    LeadLog_Active: [["lead_id", "client_id", "assigned_agent_id", "lead_status", "trace_id", "lifecycle_id", "assignment_id", "owner_epoch_id", "policy_snapshot_id"]],
+    LeadIndex: [["lead_id", "leadlog_row", "client_id"]],
+    ReminderQueue: [["trace_id", "client_id", "lead_id", "token", "lead_data_spreadsheet_id", "assigned_agent_id", "active_monitoring", "next_action_due_ts_utc", "next_action_type", "last_processed_ts_utc", "notes", "dispatch_claimed_ts_utc", "lifecycle_id", "assignment_id"]],
+    ActionLinkMap: [["short_code", "public_url", "gateway_context", "selected_action", "lead_id", "client_id", "lead_data_spreadsheet_id", "assigned_agent_id", "expires_ts_utc", "active", "created_ts_utc", "used_ts_utc", "notes", "deactivated_ts_utc", "deactivation_reason", "trace_id", "lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id", "gateway_id"]],
+    Idempotency: [["idempotency_key", "client_id", "source_token", "first_seen_timestamp", "last_seen_timestamp", "lead_id", "status", "notes"]]
+  };
   const sheets = { spreadsheets: { values: {
     async batchGet() { return { data: { valueRanges: [{ values: clients }, { values: agents }, { values: routing }, { values: sourceMap }] } }; },
     async get({ range }) {
-      if (range.startsWith("Idempotency!")) return { data: { values: [["idempotency_key", "client_id", "source_token", "first_seen_timestamp", "last_seen_timestamp", "lead_id", "status", "notes"]] } };
+      for (const [name, values] of Object.entries(tables)) if (range.startsWith(`${name}!`)) return { data: { values } };
       if (range.startsWith("Agents!")) return { data: { values: agents } };
       throw new Error(`Unexpected coordinated intake read: ${range}`);
     },
     async update(args) { updates.push(args); return { data: {} }; },
-    async append(args) { appends.push(args); return { data: { updates: { updatedRange: args.range.startsWith("LeadLog_Active!") ? "LeadLog_Active!A2:BL2" : "" } } }; }
+    async append(args) {
+      appends.push(args);
+      const name = args.range.split("!")[0];
+      const raw = args.requestBody.values[0];
+      if (name === "LeadLog_Active") tables[name].push([raw[0], raw[1], raw[15], raw[19], raw[22], raw.at(-6), raw.at(-5), raw.at(-3), raw.at(-1)]);
+      else if (tables[name]) tables[name].push(raw);
+      return { data: { updates: { updatedRange: name === "LeadLog_Active" ? "LeadLog_Active!A2:BL2" : `${name}!A2:Z2` } } };
+    }
   } } };
   const store = memoryStore();
   const sent = [];
@@ -369,7 +450,7 @@ test("coordinated intake commits through the client and performs no direct Routi
     sheets,
     routingCoordinationConfig: { ...config, environment: "TEST" },
     routingCoordinationObligationStore: store,
-    routingCoordinationClient: { commit: async request => { sent.push(request); return signedResponse(request); } }
+    routingCoordinationClient: verifiedClient(async request => { sent.push(request); return signedResponse(request); })
   });
   try {
     const response = await intake.handler({ httpMethod: "POST", body: JSON.stringify({
@@ -392,7 +473,7 @@ test("coordinated intake commits through the client and performs no direct Routi
   }
 });
 
-test("coordinated release failure stops without a direct RoutingState fallback", async () => {
+test("claimed coordinated release with no obligation reconstructs pre-GAS and never directly writes RoutingState", async () => {
   const previousMode = process.env.EP_ROUTING_STATE_MODE;
   const previousSecret = process.env.EP_RELEASE_SHARED_SECRET;
   const previousGoogle = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -400,8 +481,8 @@ test("coordinated release failure stops without a direct RoutingState fallback",
   process.env.EP_RELEASE_SHARED_SECRET = "release-secret";
   process.env.GOOGLE_SERVICE_ACCOUNT = "{}";
   const release = require("../netlify/functions/release-lead");
-  const releaseRows = [["release_id", "client_id", "lead_id", "status", "released_ts_utc", "dispatch_claimed_ts_utc", "release_attempts", "notes"], ["REL-1", "C-001", "L-1", "PENDING", "", "", "0", ""]];
-  const clientRows = [["client_id", "lead_data_spreadsheet_id", "routing_strategy"], ["C-001", "LEADS", "WEIGHTED_INTERLEAVED"]];
+  const releaseRows = [["release_id", "client_id", "lead_id", "status", "released_ts_utc", "dispatch_claimed_ts_utc", "release_attempts", "notes"], ["REL-1", "C-001", "L-1", "PROCESSING", "", "2026-10-07T11:59:00.000Z", "1", "claimed"]];
+  const clientRows = [["client_id", "lead_data_spreadsheet_id", "routing_strategy", "reminder_1_delay_minutes"], ["C-001", "LEADS", "WEIGHTED_INTERLEAVED", "15"]];
   const leadRows = [["lead_id", "client_id", "lead_status", "trace_id", "lifecycle_id", "policy_snapshot_id"], ["L-1", "C-001", "PENDING_RELEASE", "TRACE-1", "L-1", "ps-1"]];
   const agentRows = [["agent_id", "client_id", "agent_status", "assignment_weight", "priority_slot", "agent_phone"], ["A-1", "C-001", "ACTIVE", "1", "1", "+15555550100"]];
   const routingRows = [["client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id", "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"], ["C-001", "4", "0", "", "", "7", "keep", ""]];
@@ -422,7 +503,7 @@ test("coordinated release failure stops without a direct RoutingState fallback",
     sheets,
     routingCoordinationConfig: { ...config, environment: "TEST" },
     routingCoordinationObligationStore: memoryStore(),
-    routingCoordinationClient: { commit: async request => signedResponse(request, { result_status: "ROUTING_RECOVERY_INCONSISTENT", result_payload: { retryable: false } }) }
+    routingCoordinationClient: verifiedClient(async request => signedResponse(request, { result_status: "ROUTING_RECOVERY_INCONSISTENT", result_payload: { retryable: false } }))
   });
   try {
     await assert.rejects(() => release.handler({
@@ -430,13 +511,37 @@ test("coordinated release failure stops without a direct RoutingState fallback",
       headers: { "x-ep-release-secret": "release-secret" },
       body: JSON.stringify({ release_id: "REL-1" })
     }, {}), /inconsistent recovery/i);
-    assert.ok(updates.some(call => String(call.range).startsWith("ReleaseQueue!")), "existing release claim remains intact");
+    assert.equal(updates.some(call => String(call.range).startsWith("ReleaseQueue!")), false, "existing release claim is reused");
     assert.equal(updates.some(call => String(call.range).startsWith("RoutingState!")), false);
   } finally {
     release._test.setRuntime(null);
     if (previousMode === undefined) delete process.env.EP_ROUTING_STATE_MODE; else process.env.EP_ROUTING_STATE_MODE = previousMode;
     if (previousSecret === undefined) delete process.env.EP_RELEASE_SHARED_SECRET; else process.env.EP_RELEASE_SHARED_SECRET = previousSecret;
     if (previousGoogle === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT; else process.env.GOOGLE_SERVICE_ACCOUNT = previousGoogle;
+  }
+});
+
+test("obligation validation rejects unsupported schema, corrupt accepted proof, and logical binding mismatch", async () => {
+  const store = memoryStore();
+  const request = sampleRequest();
+  await coordinateRoutingCommit({
+    logicalReference: request.logical_reference,
+    environment: "TEST",
+    buildAttempt: async () => ({ request, continuation: validContinuation(request) }),
+    obligationStore: store,
+    client: verifiedClient(async value => signedResponse(value))
+  });
+  const key = routingOperationKey("TEST", request.logical_reference);
+  const baseline = store.map.get(key).record;
+  const verifyResponse = (response, semanticRequest) => verifyCoordinatorResponse(response, semanticRequest, config);
+  assert.doesNotThrow(() => validateRoutingObligation({ record: baseline, key, environment: "TEST", logicalReference: request.logical_reference, verifyResponse }));
+  for (const mutation of [
+    record => ({ ...record, schema_version: 99 }),
+    record => ({ ...record, coordinator_response: { ...record.coordinator_response, signature: "0".repeat(64) } }),
+    record => ({ ...record, logical_reference: { ...record.logical_reference, source_event_id: "other-event" } }),
+    record => ({ ...record, semantic_request: { ...record.semantic_request, routing_commit_id: `rc1_${"0".repeat(64)}` } })
+  ]) {
+    assert.throws(() => validateRoutingObligation({ record: mutation(structuredClone(baseline)), key, environment: "TEST", logicalReference: request.logical_reference, verifyResponse }));
   }
 });
 

@@ -32,8 +32,15 @@ const {
 } = require("./_shared/routing-coordination-obligation-store");
 const {
   coordinateRoutingCommit,
-  routingCoordinationMode
+  routingCoordinationMode,
+  routingOperationKey,
+  validateRoutingObligation
 } = require("./_shared/routing-coordination");
+const {
+  inspectUniqueRows,
+  reconcileCreateStep,
+  runAtMostOnceDispatch
+} = require("./_shared/routing-continuation");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
@@ -105,7 +112,7 @@ if (routingStateMode === "GAS_COORDINATED") {
   }
 }
 
-const trace_id = randomUUID();
+let trace_id = randomUUID();
 console.log("trace_id:", trace_id);
 
 const intakeClientRef = (leadPayload.intake_client_reference || "").trim();
@@ -333,7 +340,24 @@ const duplicateRowIndex = findRowIndexByColumnValue(
   idempotencyKey
 );
 
-if (duplicateRowIndex !== -1) {
+let routingContinuationContext = null;
+let coordinatedRetryEvidence = false;
+if (routingStateMode === "GAS_COORDINATED") {
+  const logicalReference = {
+    logical_reference_contract: CONTRACTS.initialIntake,
+    client_id: client.client_id,
+    source_system: "WEBSITE",
+    source_path: "website-lead-form-v1",
+    source_event_id: normalizeSourceEventId(leadPayload.source_event_id)
+  };
+  const config = intakeTestRuntime?.routingCoordinationConfig || loadRoutingCoordinationConfig();
+  const obligationStore = intakeTestRuntime?.routingCoordinationObligationStore || createRoutingCoordinationObligationStore();
+  const operationKey = routingOperationKey(config.environment, logicalReference);
+  coordinatedRetryEvidence = Boolean(await obligationStore.read(operationKey));
+  routingContinuationContext = { config, logicalReference, obligationStore, operationKey };
+}
+
+if (duplicateRowIndex !== -1 && !coordinatedRetryEvidence) {
   console.log("intake_duplicate_lead", {
     trace_id,
     client_id: client.client_id,
@@ -434,7 +458,8 @@ await appendSystemEvent({
 
 if (
   !serviceWindowStatus.is_open &&
-  serviceWindowStatus.release_mode === "AT_OPEN"
+  serviceWindowStatus.release_mode === "AT_OPEN" &&
+  !coordinatedRetryEvidence
 ) {
   const nowUtc =
     new Date().toISOString();
@@ -619,7 +644,7 @@ return String(agent.client_id || "").trim() === client.client_id &&
 String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE";
 });
 
-if (eligibleAgents.length === 0) {
+if (eligibleAgents.length === 0 && !coordinatedRetryEvidence) {
 console.log("intake_validation_error", {
 trace_id,
 reason: "no_active_agents",
@@ -631,7 +656,7 @@ body: JSON.stringify({ error: "Invalid request" })
 };
 }
 
-for (const agent of eligibleAgents) {
+for (const agent of coordinatedRetryEvidence ? [] : eligibleAgents) {
 const assignmentWeight = parseInt(agent.assignment_weight, 10);
 const prioritySlot = parseInt(agent.priority_slot, 10);
 
@@ -651,7 +676,7 @@ body: JSON.stringify({ error: "Invalid request" })
 
 const routingStrategy = String(client.routing_strategy || "").trim();
 
-if (!routingStrategy) {
+if (!routingStrategy && !coordinatedRetryEvidence) {
   throw new Error(`Missing routing_strategy for client_id: ${client.client_id}`);
 }
 
@@ -660,16 +685,8 @@ let assignmentIdentity;
 let routingState;
 
 if (routingStateMode === "GAS_COORDINATED") {
-  const logicalReference = {
-    logical_reference_contract: CONTRACTS.initialIntake,
-    client_id: client.client_id,
-    source_system: "WEBSITE",
-    source_path: "website-lead-form-v1",
-    source_event_id: normalizeSourceEventId(leadPayload.source_event_id)
-  };
-  const config = intakeTestRuntime?.routingCoordinationConfig || loadRoutingCoordinationConfig();
+  const { logicalReference, config, obligationStore } = routingContinuationContext;
   const coordinationClient = intakeTestRuntime?.routingCoordinationClient || createRoutingCoordinationClient({ config });
-  const obligationStore = intakeTestRuntime?.routingCoordinationObligationStore || createRoutingCoordinationObligationStore();
 
   const buildAttempt = async ({ reason }) => {
     let attemptRoutingRows = routingRows;
@@ -701,6 +718,10 @@ if (routingStateMode === "GAS_COORDINATED") {
       lifecycleIdentity,
       assignedAgentId: result.assigned_agent_id
     });
+    const gatewayIdentity = createGatewayIdentity(candidateAssignmentIdentity);
+    const createdTsUtc = new Date().toISOString();
+    const reminderDelay = parseInt(client.reminder_1_delay_minutes, 10);
+    if (!Number.isFinite(reminderDelay) || reminderDelay <= 0) throw new Error("Invalid coordinated reminder delay.");
     const stateFingerprint = routingStateFingerprint(currentState).fingerprint;
     const request = buildSemanticRequest({
       environment: config.environment,
@@ -723,10 +744,18 @@ if (routingStateMode === "GAS_COORDINATED") {
     return {
       request,
       continuation: {
+        operation_kind: DECISION_TYPES.INITIAL_INTAKE,
         lead_id: leadId,
         lifecycle_identity: lifecycleIdentity,
         assignment_identity: candidateAssignmentIdentity,
-        assignment_result: result
+        assignment_result: result,
+        plan: {
+          trace_id,
+          created_ts_utc: createdTsUtc,
+          reminder_due_ts_utc: new Date(new Date(createdTsUtc).getTime() + reminderDelay * 60000).toISOString(),
+          lifecycle_event_id: randomUUID(),
+          gateway_id: gatewayIdentity.gateway_id
+        }
       }
     };
   };
@@ -741,10 +770,17 @@ if (routingStateMode === "GAS_COORDINATED") {
   });
   timing.assignment_compute_ms = Date.now() - t0;
   leadId = coordinated.continuation.lead_id;
+  trace_id = coordinated.continuation.plan.trace_id;
   lifecycleIdentity = coordinated.continuation.lifecycle_identity;
   assignmentIdentity = coordinated.continuation.assignment_identity;
   assignmentResult = coordinated.continuation.assignment_result;
   routingState = coordinated.response.result_payload;
+  routingContinuationContext = {
+    ...routingContinuationContext,
+    coordinationClient,
+    continuation: coordinated.continuation,
+    obligation: coordinated.obligation
+  };
 } else {
   routingState = routingStates[0];
   const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
@@ -778,9 +814,11 @@ if (routingStateMode === "GAS_COORDINATED") {
   assignedAgentPool = rowsToObjects(assignedAgentRefresh.data.values || []);
 }
 const assignedAgent = assignedAgentPool.find(agent => agent.agent_id === assignmentResult.assigned_agent_id);
-if (!assignedAgent) throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
+const intakeSmsState = routingContinuationContext?.obligation?.consequence_state?.SMS?.status || "";
+const intakeSmsSettled = ["COMPLETED", "AMBIGUOUS", "MANUAL_RECONCILIATION"].includes(intakeSmsState);
+if (!assignedAgent && !intakeSmsSettled) throw new Error(`Assigned agent not found after routing: ${assignmentResult.assigned_agent_id}`);
 
-const nowUtc = new Date().toISOString();
+const nowUtc = routingContinuationContext?.continuation?.plan?.created_ts_utc || new Date().toISOString();
 const leadDataSpreadsheetId = client.lead_data_spreadsheet_id;
 
 if (!leadDataSpreadsheetId) {
@@ -793,7 +831,8 @@ if (!Number.isFinite(reminderDelayMinutes) || reminderDelayMinutes <= 0) {
   throw new Error(`Invalid reminder_1_delay_minutes for client_id: ${client.client_id}`);
 }
 
-const nextActionDue = new Date(Date.now() + reminderDelayMinutes * 60000).toISOString();
+const nextActionDue = routingContinuationContext?.continuation?.plan?.reminder_due_ts_utc ||
+  new Date(Date.now() + reminderDelayMinutes * 60000).toISOString();
 let directObligationStore = null;
 let directCommittedIntake = null;
 let directProjectionIdentity = null;
@@ -894,27 +933,46 @@ const row = [
   ...identityValues(assignmentIdentity)
 ];
 
-const leadLogAppendResult = await sheets.spreadsheets.values.append({
-  spreadsheetId: leadDataSpreadsheetId,
-  range: "LeadLog_Active!A1",
-  valueInputOption: "RAW",
-  requestBody: {
-    values: [row]
-  }
-});
-
-const leadLogUpdatedRange = leadLogAppendResult.data.updates?.updatedRange || "";
-const leadLogRowMatch = leadLogUpdatedRange.match(/![A-Z]+(\d+):/);
-const leadLogRowNumber = leadLogRowMatch ? leadLogRowMatch[1] : "";
-
-await appendLeadIndexRow({
+const leadLogObserved = await reconcileIntakeCreate({
+  context: routingContinuationContext,
+  step: "LEAD_LOG",
   sheets,
   spreadsheetId: leadDataSpreadsheetId,
-  lead_id: leadId,
-  leadlog_row: leadLogRowNumber,
-  client_id: client.client_id,
-  created_timestamp: nowUtc,
-  last_updated_timestamp: nowUtc
+  range: "LeadLog_Active!A1:BO10000",
+  match: value => value.lead_id === leadId,
+  exact: value => value.client_id === client.client_id &&
+    value.assigned_agent_id === assignmentResult.assigned_agent_id &&
+    value.lead_status === "NEW" && value.trace_id === trace_id &&
+    value.lifecycle_id === assignmentIdentity.lifecycle_id &&
+    value.assignment_id === assignmentIdentity.assignment_id &&
+    value.owner_epoch_id === assignmentIdentity.owner_epoch_id &&
+    value.policy_snapshot_id === assignmentIdentity.policy_snapshot_id,
+  create: async () => sheets.spreadsheets.values.append({
+    spreadsheetId: leadDataSpreadsheetId,
+    range: "LeadLog_Active!A1",
+    valueInputOption: "RAW",
+    requestBody: { values: [row] }
+  })
+});
+const leadLogRowNumber = leadLogObserved?.evidence?.row_number || "";
+
+await reconcileIntakeCreate({
+  context: routingContinuationContext,
+  step: "LEAD_INDEX",
+  sheets,
+  spreadsheetId: leadDataSpreadsheetId,
+  range: "LeadIndex!A1:F10000",
+  match: value => value.lead_id === leadId,
+  exact: value => value.client_id === client.client_id && String(value.leadlog_row || "") === String(leadLogRowNumber),
+  create: () => appendLeadIndexRow({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    lead_id: leadId,
+    leadlog_row: leadLogRowNumber,
+    client_id: client.client_id,
+    created_timestamp: nowUtc,
+    last_updated_timestamp: nowUtc
+  })
 });
 
 timing.sheets_write_leadlog_ms = Date.now() - t0;
@@ -937,13 +995,23 @@ const reminderRow = [
   ...identityValues(assignmentIdentity)
 ];
 
-await sheets.spreadsheets.values.append({
+await reconcileIntakeCreate({
+  context: routingContinuationContext,
+  step: "REMINDER",
+  sheets,
   spreadsheetId: SHEET_ID,
-  range: "ReminderQueue!A1",
-  valueInputOption: "RAW",
-  requestBody: {
-    values: [reminderRow]
-  }
+  range: "ReminderQueue!A1:Z10000",
+  match: value => value.lead_id === leadId && value.assignment_id === assignmentIdentity.assignment_id,
+  exact: value => value.client_id === client.client_id &&
+    value.assigned_agent_id === assignmentResult.assigned_agent_id &&
+    value.next_action_due_ts_utc === nextActionDue && value.active_monitoring === "TRUE" &&
+    value.trace_id === trace_id && value.lifecycle_id === assignmentIdentity.lifecycle_id,
+  create: () => sheets.spreadsheets.values.append({
+    spreadsheetId: SHEET_ID,
+    range: "ReminderQueue!A1",
+    valueInputOption: "RAW",
+    requestBody: { values: [reminderRow] }
+  })
 });
 
 const actionLinks = await createInitialActionLinks({
@@ -952,23 +1020,34 @@ const actionLinks = await createInitialActionLinks({
   client,
   assigned_agent_id: assignmentResult.assigned_agent_id,
   trace_id,
-  assignment_identity: assignmentIdentity
+  assignment_identity: assignmentIdentity,
+  planned_gateway: routingContinuationContext?.continuation?.plan,
+  continuation_context: routingContinuationContext
 });
 
-await appendIdempotencyRow({
+await reconcileIntakeCreate({
+  context: routingContinuationContext,
+  step: "IDEMPOTENCY",
   sheets,
   spreadsheetId: leadDataSpreadsheetId,
-  idempotency_key: idempotencyKey,
-  client_id: client.client_id,
-  source_token: sourceToken,
-  first_seen_timestamp: nowUtc,
-  lead_id: leadId
+  range: "Idempotency!A1:H10000",
+  match: value => value.idempotency_key === idempotencyKey,
+  exact: value => value.client_id === client.client_id && value.lead_id === leadId && value.source_token === sourceToken,
+  create: () => appendIdempotencyRow({
+    sheets,
+    spreadsheetId: leadDataSpreadsheetId,
+    idempotency_key: idempotencyKey,
+    client_id: client.client_id,
+    source_token: sourceToken,
+    first_seen_timestamp: nowUtc,
+    lead_id: leadId
+  })
 });
 
 timing.sheets_write_reminderqueue_ms = Date.now() - t0;
 
 const smsPayload = {
-  to: assignedAgent.agent_phone,
+  to: assignedAgent?.agent_phone || "",
   message:
     `New EngagePriority lead assigned.\n\n` +
     `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
@@ -978,7 +1057,7 @@ console.log("intake_before_sms_send", {
   trace_id,
   lead_id: leadId,
   assigned_agent_id: assignmentResult.assigned_agent_id,
-  phone: assignedAgent.agent_phone
+  phone: assignedAgent?.agent_phone || ""
 });
 
 if (directObligationStore) {
@@ -1014,7 +1093,22 @@ if (directObligationStore) {
 
 let smsResult;
 try {
-  smsResult = await sendSmsIfEnabled(smsPayload);
+  if (routingContinuationContext) {
+    const dispatched = await runAtMostOnceDispatch({
+      store: routingContinuationContext.obligationStore,
+      key: routingContinuationContext.operationKey,
+      validate: createIntakeObligationValidator(routingContinuationContext),
+      step: "SMS",
+      dispatch: () => sendSmsIfEnabled(smsPayload),
+      disabled: String(process.env.ENABLE_SMS_SEND || "").toLowerCase() !== "true"
+    });
+    if (dispatched.status === "AMBIGUOUS") {
+      return { statusCode: 202, body: JSON.stringify({ status: "SMS_MANUAL_RECONCILIATION_REQUIRED", trace_id, lead_id: leadId }) };
+    }
+    smsResult = dispatched.result || { sent: false, reason: dispatched.evidence.provider_status };
+  } else {
+    smsResult = await sendSmsIfEnabled(smsPayload);
+  }
 } catch (error) {
   if (directCommittedIntake) {
     directCommittedIntake = {
@@ -1091,7 +1185,33 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
     obligationStore: directObligationStore
   });
 } else if (INTAKE_PROJECTION_MODE === "LEGACY_MAKE") {
-  postCommitProjection = await runLegacyMakeIntakeHandoff(legacyCommittedIntake);
+  if (routingContinuationContext) {
+    const projectionDispatch = await runAtMostOnceDispatch({
+      store: routingContinuationContext.obligationStore,
+      key: routingContinuationContext.operationKey,
+      validate: createIntakeObligationValidator(routingContinuationContext),
+      step: "LEGACY_PROJECTION",
+      dispatch: async () => {
+        const result = await runLegacyMakeIntakeHandoff(legacyCommittedIntake);
+        if (result?.repair_required) {
+          const code = result?.error?.code || "LEGACY_MAKE_REJECTED";
+          const error = new Error(code);
+          error.code = code;
+          error.result = result;
+          error.safeToRetry = code !== "LEGACY_MAKE_SUBMISSION_FAILED";
+          throw error;
+        }
+        return result;
+      },
+      evidenceFromResult: result => ({ status: result?.status || "UNKNOWN" }),
+      disabled: false
+    });
+    postCommitProjection = projectionDispatch.status === "AMBIGUOUS"
+      ? projectionRepairRequired("LEGACY_MAKE_HANDOFF_AMBIGUOUS")
+      : (projectionDispatch.result || { status: projectionDispatch.evidence.status });
+  } else {
+    postCommitProjection = await runLegacyMakeIntakeHandoff(legacyCommittedIntake);
+  }
 } else {
   postCommitProjection = projectionRepairRequired("INVALID_PROJECTION_MODE");
 }
@@ -2077,11 +2197,13 @@ async function createInitialActionLinks({
   client,
   assigned_agent_id,
   trace_id,
-  assignment_identity
+  assignment_identity,
+  planned_gateway,
+  continuation_context
 }) {
   const gatewayContexts = ["INITIAL_RESPONSE_GATEWAY"];
 
-  const created_ts_utc = new Date().toISOString();
+  const created_ts_utc = planned_gateway?.created_ts_utc || new Date().toISOString();
 
   const results = {};
   const rowsToInsert = [];
@@ -2089,7 +2211,9 @@ async function createInitialActionLinks({
   for (const gateway_context of gatewayContexts) {
     const short_code = generateShortCode();
     const public_url = `https://engagepriority.com/a/${short_code}`;
-    const gatewayIdentity = createGatewayIdentity(assignment_identity);
+    const gatewayIdentity = planned_gateway?.gateway_id
+      ? { ...assignment_identity, gateway_id: planned_gateway.gateway_id }
+      : createGatewayIdentity(assignment_identity);
 
     results[gateway_context] = {
       short_code,
@@ -2130,16 +2254,72 @@ async function createInitialActionLinks({
     action_count: gatewayContexts.length
   });
 
-  await sheets.spreadsheets.values.append({
+  const observed = await reconcileIntakeCreate({
+    context: continuation_context,
+    step: "ACTION_LINK",
+    sheets,
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
-    range: "ActionLinkMap!A:Y",
-    valueInputOption: "RAW",
-    requestBody: {
-      values: rowsToInsert
-    }
+    range: "ActionLinkMap!A1:Y10000",
+    match: value => value.gateway_id === results.INITIAL_RESPONSE_GATEWAY.gateway_id ||
+      value.short_code === results.INITIAL_RESPONSE_GATEWAY.short_code,
+    exact: value => value.lead_id === lead_id && value.client_id === client.client_id &&
+      value.assigned_agent_id === assigned_agent_id &&
+      value.gateway_id === results.INITIAL_RESPONSE_GATEWAY.gateway_id && value.assignment_id === assignment_identity.assignment_id,
+    create: () => sheets.spreadsheets.values.append({
+      spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+      range: "ActionLinkMap!A:Y",
+      valueInputOption: "RAW",
+      requestBody: { values: rowsToInsert }
+    })
   });
 
+  if (observed?.row) {
+    results.INITIAL_RESPONSE_GATEWAY.short_code = observed.row.short_code;
+    results.INITIAL_RESPONSE_GATEWAY.token = observed.row.short_code;
+    results.INITIAL_RESPONSE_GATEWAY.public_url = observed.row.public_url;
+  }
+
   return results;
+}
+
+function createIntakeObligationValidator(context) {
+  return (record, key) => validateRoutingObligation({
+    record,
+    key,
+    environment: context.config.environment,
+    logicalReference: context.logicalReference,
+    verifyResponse: context.coordinationClient.verify
+  });
+}
+
+async function reconcileIntakeCreate({ context, step, sheets, spreadsheetId, range, match, exact, create }) {
+  if (!context) {
+    const result = await create();
+    const updatedRange = result?.data?.updates?.updatedRange || "";
+    const rowMatch = updatedRange.match(/![A-Z]+(\d+):/);
+    return { state: "EXACT", evidence: { row_number: rowMatch ? rowMatch[1] : "" } };
+  }
+  const inspect = async () => {
+    const rows = await readSheetRows(sheets, spreadsheetId, range);
+    const objects = rowsToObjects(rows);
+    return inspectUniqueRows(objects, {
+      match,
+      exact,
+      evidence(value) {
+        const index = objects.indexOf(value);
+        return { row_number: String(index + 2) };
+      }
+    });
+  };
+  return reconcileCreateStep({
+    store: context.obligationStore,
+    key: context.operationKey,
+    validate: createIntakeObligationValidator(context),
+    step,
+    inspect,
+    create,
+    afterCreate: intakeTestRuntime?.afterRoutingConsequenceCreate
+  });
 }
 
 function buildIdempotencyKey(clientId, email, phone) {
