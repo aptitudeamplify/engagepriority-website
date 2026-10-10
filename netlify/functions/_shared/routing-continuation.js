@@ -1,6 +1,7 @@
 const { randomUUID } = require("crypto");
 
 const STEP_STATUS = Object.freeze({
+  NOT_STARTED: "NOT_STARTED",
   PENDING: "PENDING",
   CREATING: "CREATING",
   COMPLETED: "COMPLETED",
@@ -14,7 +15,7 @@ function clone(value) {
 }
 
 function stepState(record, step) {
-  return record.consequence_state?.[step] || { status: STEP_STATUS.PENDING };
+  return record.consequence_state?.[step] || { status: STEP_STATUS.NOT_STARTED, evidence: {} };
 }
 
 async function casMutate({ store, key, validate, mutate, maxAttempts = 8 }) {
@@ -24,6 +25,7 @@ async function casMutate({ store, key, validate, mutate, maxAttempts = 8 }) {
     validate(stored.record, key);
     const next = mutate(clone(stored.record));
     if (!next) return { record: stored.record, etag: stored.etag, changed: false };
+    validate(next, key);
     const replaced = await store.replace(key, next, stored.etag);
     if (replaced.replaced) return { record: replaced.record, etag: replaced.etag, changed: true };
     // CAS loss is never overwritten. Loop and reconcile the durable winner.
@@ -78,7 +80,7 @@ async function reconcileCreateStep({
   if (current.status === STEP_STATUS.CREATING) {
     throw new Error(`Routing continuation create ownership is unresolved: ${step}`);
   }
-  if (current.status !== STEP_STATUS.PENDING) {
+  if (current.status !== STEP_STATUS.NOT_STARTED) {
     throw new Error(`Routing continuation create step is not eligible: ${step}`);
   }
 
@@ -88,7 +90,7 @@ async function reconcileCreateStep({
     validate,
     mutate(record) {
       const winner = stepState(record, step);
-      if (winner.status !== STEP_STATUS.PENDING) return null;
+      if (winner.status !== STEP_STATUS.NOT_STARTED) return null;
       record.consequence_state = record.consequence_state || {};
       const timestamp = (now || (() => new Date().toISOString()))();
       record.consequence_state[step] = {
@@ -130,13 +132,21 @@ async function reconcileCreateStep({
   return observed;
 }
 
-async function reconcileMutationStep({ store, key, validate, step, inspect, apply, afterApply, now }) {
+async function reconcileMutationStep({ store, key, validate, step, inspect, apply, authorizeBeforeApply, afterApply, now }) {
   const stored = await store.read(key);
   if (!stored) throw new Error("Routing coordination obligation disappeared.");
   validate(stored.record, key);
   let observed = await inspect();
   if (observed.state === "CONFLICT") throw new Error(`Conflicting continuation target: ${step}`);
   if (observed.state === "NEEDS_APPLY") {
+    if (authorizeBeforeApply) {
+      const current = await store.read(key);
+      if (!current) throw new Error("Routing coordination obligation disappeared.");
+      validate(current.record, key);
+      if (!authorizeBeforeApply(current.record)) {
+        throw new Error(`Routing continuation mutation prerequisite is not satisfied: ${step}`);
+      }
+    }
     await apply();
     if (afterApply) await afterApply(step);
     observed = await inspect();
@@ -161,6 +171,8 @@ async function runAtMostOnceDispatch({
   dispatch,
   evidenceFromResult,
   disabled,
+  establishGuard,
+  retryGuard,
   now
 }) {
   let stored = await store.read(key);
@@ -170,35 +182,70 @@ async function runAtMostOnceDispatch({
   if (current.status === STEP_STATUS.COMPLETED) return { status: "COMPLETED", evidence: current.evidence || {} };
   if (current.status === STEP_STATUS.DISPATCHING || current.status === STEP_STATUS.AMBIGUOUS || current.status === STEP_STATUS.MANUAL_RECONCILIATION) {
     if (current.status === STEP_STATUS.DISPATCHING) {
-      await setStepState({ store, key, validate, step, status: STEP_STATUS.AMBIGUOUS, evidence: { reason: "DISPATCH_OUTCOME_UNKNOWN" }, now });
+      const evidence = {
+        reason: "DISPATCH_OUTCOME_UNKNOWN",
+        ...(current.evidence?.retry_provenance ? { retry_provenance: current.evidence.retry_provenance } : {})
+      };
+      await setStepState({ store, key, validate, step, status: STEP_STATUS.AMBIGUOUS, evidence, now });
+      return { status: "AMBIGUOUS", evidence };
     }
     return { status: "AMBIGUOUS", evidence: current.evidence || {} };
   }
-  if (disabled) {
-    await setStepState({ store, key, validate, step, status: STEP_STATUS.COMPLETED, evidence: { dispatched: false, reason: "DISABLED" }, now });
-    return { status: "COMPLETED", evidence: { dispatched: false, reason: "DISABLED" } };
+  if (current.status !== STEP_STATUS.NOT_STARTED && current.status !== STEP_STATUS.PENDING) {
+    throw new Error(`Routing continuation dispatch step is not eligible: ${step}`);
   }
 
-  const claim = await casMutate({
-    store,
-    key,
-    validate,
-    mutate(record) {
-      const winner = stepState(record, step);
-      if (winner.status !== STEP_STATUS.PENDING) return null;
-      record.consequence_state = record.consequence_state || {};
-      record.consequence_state[step] = {
-        status: STEP_STATUS.DISPATCHING,
-        evidence: { dispatch_started: true },
-        updated_ts_utc: (now || (() => new Date().toISOString()))()
-      };
-      return record;
+  let claim;
+  try {
+    claim = await casMutate({
+      store,
+      key,
+      validate,
+      mutate(record) {
+        const winner = stepState(record, step);
+        if (winner.status !== STEP_STATUS.NOT_STARTED && winner.status !== STEP_STATUS.PENDING) return null;
+        const retry = winner.status === STEP_STATUS.PENDING;
+        const permitted = retry
+          ? (!retryGuard || retryGuard(record))
+          : (!establishGuard || establishGuard(record));
+        if (!permitted) {
+          const error = new Error(`Routing continuation dispatch prerequisite is not satisfied: ${step}`);
+          error.code = "DISPATCH_PREREQUISITE_NOT_MET";
+          throw error;
+        }
+        record.consequence_state = record.consequence_state || {};
+        const timestamp = (now || (() => new Date().toISOString()))();
+        const evidence = disabled
+          ? { dispatched: false, reason: "DISABLED" }
+          : {
+              dispatch_started: true,
+              ...(retry ? { retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" } : {})
+            };
+        record.consequence_state[step] = {
+          status: disabled ? STEP_STATUS.COMPLETED : STEP_STATUS.DISPATCHING,
+          evidence,
+          updated_ts_utc: timestamp
+        };
+        record.updated_ts_utc = timestamp;
+        return record;
+      }
+    });
+  } catch (error) {
+    if (error?.code === "DISPATCH_PREREQUISITE_NOT_MET") {
+      return { status: "PREREQUISITE_BLOCKED", evidence: current.evidence || {}, error_code: error.code };
     }
-  });
-  current = stepState(claim.record, step);
-  if (!claim.changed || current.status !== STEP_STATUS.DISPATCHING) {
-    return runAtMostOnceDispatch({ store, key, validate, step, dispatch, evidenceFromResult, disabled, now });
+    throw error;
   }
+  current = stepState(claim.record, step);
+  if (disabled && claim.changed && current.status === STEP_STATUS.COMPLETED) {
+    return { status: "COMPLETED", evidence: current.evidence || {} };
+  }
+  if (!claim.changed || current.status !== STEP_STATUS.DISPATCHING) {
+    return runAtMostOnceDispatch({
+      store, key, validate, step, dispatch, evidenceFromResult, disabled, establishGuard, retryGuard, now
+    });
+  }
+  const retryProvenance = current.evidence?.retry_provenance;
 
   try {
     const result = await dispatch();
@@ -215,7 +262,11 @@ async function runAtMostOnceDispatch({
       await setStepState({ store, key, validate, step, status: STEP_STATUS.PENDING, evidence, now });
       return { status: "RETRYABLE_FAILURE", evidence, result: error.result };
     }
-    const evidence = { reason: "PROVIDER_RESULT_AMBIGUOUS", error_code: String(error?.code || "PROVIDER_ERROR") };
+    const evidence = {
+      reason: "PROVIDER_RESULT_AMBIGUOUS",
+      error_code: String(error?.code || "PROVIDER_ERROR"),
+      ...(retryProvenance ? { retry_provenance: retryProvenance } : {})
+    };
     await setStepState({ store, key, validate, step, status: STEP_STATUS.AMBIGUOUS, evidence, now });
     return { status: "AMBIGUOUS", evidence };
   }

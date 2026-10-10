@@ -53,6 +53,26 @@ function assertAttempt(attempt) {
 }
 
 const VALID_STEP_STATUS = new Set(["PENDING", "CREATING", "COMPLETED", "DISPATCHING", "AMBIGUOUS", "MANUAL_RECONCILIATION"]);
+const DISPATCH_STEPS = new Set(["SMS", "LEGACY_PROJECTION"]);
+const CREATE_STEPS = Object.freeze({
+  [DECISION_TYPES.INITIAL_INTAKE]: new Set(["LEAD_LOG", "LEAD_INDEX", "REMINDER", "ACTION_LINK", "IDEMPOTENCY"]),
+  [DECISION_TYPES.AFTER_HOURS_RELEASE]: new Set(["ACTION_LINK", "REMINDER", "LIFECYCLE_EVENT"])
+});
+const PREDECESSORS = Object.freeze({
+  [DECISION_TYPES.INITIAL_INTAKE]: Object.freeze({
+    LEAD_INDEX: "LEAD_LOG",
+    REMINDER: "LEAD_INDEX",
+    ACTION_LINK: "REMINDER",
+    IDEMPOTENCY: "ACTION_LINK",
+    SMS: "IDEMPOTENCY"
+  }),
+  [DECISION_TYPES.AFTER_HOURS_RELEASE]: Object.freeze({
+    ACTION_LINK: "LEAD_LOG",
+    REMINDER: "ACTION_LINK",
+    SMS: "REMINDER",
+    LIFECYCLE_EVENT: "RELEASE_QUEUE"
+  })
+});
 
 function assertText(value, field) {
   if (typeof value !== "string" || !value.trim()) throw new Error(`Invalid routing obligation field: ${field}`);
@@ -133,18 +153,39 @@ function assertRowEvidence(evidence, keys, step) {
   }
 }
 
+function isDefinitiveNoAcceptanceState(state) {
+  return state?.status === "PENDING" &&
+    state.evidence?.reason === "DEFINITIVE_NO_ACCEPTANCE" &&
+    typeof state.evidence?.error_code === "string" &&
+    Boolean(state.evidence.error_code.trim()) &&
+    Object.keys(state.evidence).length === 2;
+}
+
+function isRetryLineageDispatchState(state) {
+  return new Set(["DISPATCHING", "AMBIGUOUS", "MANUAL_RECONCILIATION"]).has(state?.status) &&
+    state.evidence?.retry_provenance === "DEFINITIVE_NO_ACCEPTANCE";
+}
+
+function isCompletedConsequence(record, step) {
+  return record?.consequence_state?.[step]?.status === "COMPLETED";
+}
+
+function isSmsDownstreamAuthorized(record) {
+  const state = record?.consequence_state?.SMS;
+  return state?.status === "COMPLETED" || isDefinitiveNoAcceptanceState(state);
+}
+
 function validateConsequenceEvidence(step, state, decisionType, continuation) {
   const evidence = state.evidence;
   if (state.status === "PENDING") {
-    const keys = Object.keys(evidence);
-    if (keys.length === 0) return;
+    if (!DISPATCH_STEPS.has(step)) throw new Error(`Routing obligation retryable pending state is invalid: ${step}`);
     assertExactKeys(evidence, ["reason", "error_code"], `Routing obligation consequence evidence: ${step}`);
     if (evidence.reason !== "DEFINITIVE_NO_ACCEPTANCE") throw new Error(`Routing obligation pending evidence is invalid: ${step}`);
     assertText(evidence.error_code, `consequence_state.${step}.evidence.error_code`);
     return;
   }
   if (state.status === "CREATING") {
-    if (!new Set(["LEAD_LOG", "LEAD_INDEX", "REMINDER", "ACTION_LINK", "IDEMPOTENCY", "LIFECYCLE_EVENT"]).has(step)) {
+    if (!CREATE_STEPS[decisionType].has(step)) {
       throw new Error(`Routing obligation create ownership is invalid for step: ${step}`);
     }
     assertExactKeys(evidence, ["claim_id"], `Routing obligation consequence evidence: ${step}`);
@@ -152,18 +193,25 @@ function validateConsequenceEvidence(step, state, decisionType, continuation) {
     return;
   }
   if (state.status === "DISPATCHING") {
-    if (!new Set(["SMS", "LEGACY_PROJECTION"]).has(step)) throw new Error(`Routing obligation dispatch state is invalid: ${step}`);
-    assertExactKeys(evidence, ["dispatch_started"], `Routing obligation consequence evidence: ${step}`);
+    if (!DISPATCH_STEPS.has(step)) throw new Error(`Routing obligation dispatch state is invalid: ${step}`);
+    const retry = Object.prototype.hasOwnProperty.call(evidence, "retry_provenance");
+    assertExactKeys(evidence, retry ? ["dispatch_started", "retry_provenance"] : ["dispatch_started"], `Routing obligation consequence evidence: ${step}`);
     if (evidence.dispatch_started !== true) throw new Error(`Routing obligation dispatch evidence is invalid: ${step}`);
+    if (retry && evidence.retry_provenance !== "DEFINITIVE_NO_ACCEPTANCE") throw new Error(`Routing obligation dispatch retry provenance is invalid: ${step}`);
     return;
   }
   if (state.status === "AMBIGUOUS" || state.status === "MANUAL_RECONCILIATION") {
+    if (!DISPATCH_STEPS.has(step)) throw new Error(`Routing obligation dispatch state is invalid: ${step}`);
     const keys = Object.keys(evidence).sort();
-    if (keys.join(",") !== "reason" && keys.join(",") !== "error_code,reason") {
+    const keyShape = keys.join(",");
+    if (!["reason", "error_code,reason", "reason,retry_provenance", "error_code,reason,retry_provenance"].includes(keyShape)) {
       throw new Error(`Routing obligation ambiguous evidence is invalid: ${step}`);
     }
     assertText(evidence.reason, `consequence_state.${step}.evidence.reason`);
     if (evidence.error_code !== undefined) assertText(evidence.error_code, `consequence_state.${step}.evidence.error_code`);
+    if (evidence.retry_provenance !== undefined && evidence.retry_provenance !== "DEFINITIVE_NO_ACCEPTANCE") {
+      throw new Error(`Routing obligation ambiguous retry provenance is invalid: ${step}`);
+    }
     return;
   }
   if (state.status !== "COMPLETED") return;
@@ -199,17 +247,32 @@ function validateConsequenceEvidence(step, state, decisionType, continuation) {
       };
   if (rowEvidence[step]) {
     assertRowEvidence(evidence, rowEvidence[step], step);
+    const expected = {
+      lead_id: continuation.lead_id,
+      assignment_id: continuation.assignment_identity?.assignment_id,
+      gateway_id: continuation.plan.gateway_id,
+      event_id: continuation.plan.lifecycle_event_id
+    };
     for (const field of rowEvidence[step].filter(field => field !== "row_number")) {
-      if (decisionType === DECISION_TYPES.AFTER_HOURS_RELEASE && field === "assignment_id" && continuation.assignment_identity === null) continue;
-      if (decisionType === DECISION_TYPES.AFTER_HOURS_RELEASE && field === "gateway_id" && continuation.assignment_identity === null) continue;
-      assertText(evidence[field], `consequence_state.${step}.evidence.${field}`);
+      const legacyBlankAllowed = decisionType === DECISION_TYPES.AFTER_HOURS_RELEASE &&
+        continuation.assignment_identity === null && new Set(["assignment_id", "gateway_id"]).has(field);
+      if (!legacyBlankAllowed) assertText(evidence[field], `consequence_state.${step}.evidence.${field}`);
+      if (!legacyBlankAllowed && evidence[field] !== expected[field]) {
+        throw new Error(`Routing obligation consequence identity mismatch: ${step}.${field}`);
+      }
+      if (legacyBlankAllowed && typeof evidence[field] !== "string") {
+        throw new Error(`Routing obligation legacy consequence identity is invalid: ${step}.${field}`);
+      }
     }
     return;
   }
   const mutationEvidence = { LEAD_LOG: ["lead_id"], RELEASE_QUEUE: ["release_id"] };
   if (decisionType === DECISION_TYPES.AFTER_HOURS_RELEASE && mutationEvidence[step]) {
     assertExactKeys(evidence, mutationEvidence[step], `Routing obligation consequence evidence: ${step}`);
-    assertText(evidence[mutationEvidence[step][0]], `consequence_state.${step}.evidence`);
+    const field = mutationEvidence[step][0];
+    assertText(evidence[field], `consequence_state.${step}.evidence.${field}`);
+    const expected = field === "lead_id" ? continuation.lead_id : continuation.release_id;
+    if (evidence[field] !== expected) throw new Error(`Routing obligation consequence identity mismatch: ${step}.${field}`);
     return;
   }
   throw new Error(`Routing obligation completed evidence is invalid: ${step}`);
@@ -231,6 +294,16 @@ function validateConsequenceState(value, decisionType, continuation) {
     if (!state.evidence || typeof state.evidence !== "object" || Array.isArray(state.evidence)) throw new Error(`Routing obligation consequence evidence is invalid: ${step}`);
     if (state.updated_ts_utc) normalizeTimestamp(state.updated_ts_utc, `consequence_state.${step}.updated_ts_utc`);
     validateConsequenceEvidence(step, state, decisionType, continuation);
+  }
+  for (const [step, predecessor] of Object.entries(PREDECESSORS[decisionType])) {
+    if (value[step] !== undefined && value[predecessor]?.status !== "COMPLETED") {
+      throw new Error(`Routing obligation consequence predecessor is incomplete: ${step} requires ${predecessor}`);
+    }
+  }
+  const downstreamStep = decisionType === DECISION_TYPES.INITIAL_INTAKE ? "LEGACY_PROJECTION" : "RELEASE_QUEUE";
+  if (value[downstreamStep] !== undefined && value[downstreamStep].status !== "COMPLETED" &&
+      !isSmsDownstreamAuthorized({ consequence_state: value }) && !isRetryLineageDispatchState(value.SMS)) {
+    throw new Error(`Routing obligation downstream consequence is not authorized: ${downstreamStep}`);
   }
 }
 
@@ -412,6 +485,9 @@ async function coordinateRoutingCommit({
 
 module.exports = {
   coordinateRoutingCommit,
+  isCompletedConsequence,
+  isRetryLineageDispatchState,
+  isSmsDownstreamAuthorized,
   routingCoordinationMode,
   routingOperationKey,
   validateRoutingObligation

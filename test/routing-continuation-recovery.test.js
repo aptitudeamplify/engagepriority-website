@@ -11,6 +11,10 @@ const {
   reconcileMutationStep,
   runAtMostOnceDispatch
 } = require("../netlify/functions/_shared/routing-continuation");
+const {
+  isCompletedConsequence,
+  isSmsDownstreamAuthorized
+} = require("../netlify/functions/_shared/routing-coordination");
 
 function storeWith(record) {
   let version = 1;
@@ -43,6 +47,18 @@ function acceptedRecord(kind = DECISION_TYPES.INITIAL_INTAKE) {
       plan: { trace_id: "T-1", created_ts_utc: "2026-10-07T12:00:00.000Z", reminder_due_ts_utc: "2026-10-07T12:15:00.000Z", lifecycle_event_id: "EV-1", gateway_id: "GW-1" }
     }
   };
+}
+
+function dispatchState(status, evidence) {
+  return { status, evidence, updated_ts_utc: "2026-10-07T12:00:00.000Z" };
+}
+
+function definitiveSmsPending(record) {
+  record.consequence_state.SMS = dispatchState(STEP_STATUS.PENDING, {
+    reason: "DEFINITIVE_NO_ACCEPTANCE",
+    error_code: "HTTP_503"
+  });
+  return record;
 }
 
 test("unknown top-level semantic input is rejected instead of ignored", () => {
@@ -329,3 +345,187 @@ test("abandoned create ownership with a conflicting target fails closed", async 
   }), /conflicting/i);
   assert.equal(creates, 0);
 });
+
+function delayOneCas(store, matches) {
+  const originalReplace = store.replace.bind(store);
+  let release;
+  let signal;
+  let delayed = false;
+  const reached = new Promise(resolve => { signal = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  store.replace = async (...args) => {
+    if (!delayed && matches(args[1])) {
+      delayed = true;
+      signal();
+      await gate;
+    }
+    return originalReplace(...args);
+  };
+  return { reached, release };
+}
+
+test("intake projection and SMS retry serialize on one durable CAS when projection wins", async () => {
+  const store = storeWith(definitiveSmsPending(acceptedRecord()));
+  const delayedSms = delayOneCas(store, next => next.consequence_state.SMS?.status === STEP_STATUS.DISPATCHING);
+  let smsDispatches = 0;
+  let projectionDispatches = 0;
+  const sms = runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "SMS", disabled: false,
+    dispatch: async () => { smsDispatches += 1; return { sent: true, sid: "SM-1" }; }
+  });
+  await delayedSms.reached;
+  const projection = await runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "LEGACY_PROJECTION", disabled: false,
+    establishGuard: isSmsDownstreamAuthorized,
+    dispatch: async () => { projectionDispatches += 1; return { status: "LEGACY_MAKE_SUBMITTED" }; },
+    evidenceFromResult: result => ({ status: result.status })
+  });
+  delayedSms.release();
+  const smsResult = await sms;
+  assert.equal(projection.status, "COMPLETED");
+  assert.equal(smsResult.status, "COMPLETED");
+  assert.equal(projectionDispatches, 1);
+  assert.equal(smsDispatches, 1);
+  assert.equal(store.value().consequence_state.LEGACY_PROJECTION.status, STEP_STATUS.COMPLETED);
+  assert.equal(store.value().consequence_state.SMS.evidence.provider_message_id, "SM-1");
+});
+
+test("intake projection loses to SMS retry, rereads, and performs no external dispatch", async () => {
+  const store = storeWith(definitiveSmsPending(acceptedRecord()));
+  const delayedProjection = delayOneCas(store, next => next.consequence_state.LEGACY_PROJECTION?.status === STEP_STATUS.DISPATCHING);
+  let smsDispatches = 0;
+  let projectionDispatches = 0;
+  const projection = runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "LEGACY_PROJECTION", disabled: false,
+    establishGuard: isSmsDownstreamAuthorized,
+    dispatch: async () => { projectionDispatches += 1; return { status: "LEGACY_MAKE_SUBMITTED" }; }
+  });
+  await delayedProjection.reached;
+  let releaseSmsDispatch;
+  let signalSmsDispatch;
+  const smsDispatchReached = new Promise(resolve => { signalSmsDispatch = resolve; });
+  const smsDispatchGate = new Promise(resolve => { releaseSmsDispatch = resolve; });
+  const smsPromise = runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "SMS", disabled: false,
+    dispatch: async () => { smsDispatches += 1; signalSmsDispatch(); await smsDispatchGate; return { sent: true, sid: "SM-2" }; }
+  });
+  await smsDispatchReached;
+  delayedProjection.release();
+  const projectionResult = await projection;
+  assert.equal(projectionResult.status, "PREREQUISITE_BLOCKED");
+  releaseSmsDispatch();
+  const sms = await smsPromise;
+  assert.equal(sms.status, "COMPLETED");
+  assert.equal(smsDispatches, 1);
+  assert.equal(projectionDispatches, 0);
+  assert.equal(store.value().consequence_state.LEGACY_PROJECTION, undefined);
+});
+
+test("release SMS retry is blocked until ReleaseQueue completion is durable", async () => {
+  const record = definitiveSmsPending(acceptedRecord(DECISION_TYPES.AFTER_HOURS_RELEASE));
+  record.continuation.release_id = "REL-1";
+  const store = storeWith(record);
+  let dispatches = 0;
+  const run = () => runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "SMS", disabled: false,
+    retryGuard: current => isCompletedConsequence(current, "RELEASE_QUEUE"),
+    dispatch: async () => { dispatches += 1; return { sent: true, sid: "SM-R" }; }
+  });
+  assert.equal((await run()).status, "PREREQUISITE_BLOCKED");
+  assert.equal(dispatches, 0);
+  await reconcileMutationStep({
+    store, key: "operation", validate() {}, step: "RELEASE_QUEUE",
+    inspect: async () => ({ state: "EXACT", evidence: { release_id: "REL-1" } }),
+    apply: async () => { throw new Error("must reuse exact target"); }
+  });
+  assert.equal((await run()).status, "COMPLETED");
+  assert.equal(dispatches, 1);
+  assert.equal(store.value().consequence_state.SMS.evidence.provider_message_id, "SM-R");
+});
+
+test("competing ReleaseQueue progression wins before an SMS retry can dispatch", async () => {
+  const record = definitiveSmsPending(acceptedRecord(DECISION_TYPES.AFTER_HOURS_RELEASE));
+  record.continuation.release_id = "REL-1";
+  const store = storeWith(record);
+  let externalCommitted = false;
+  let releaseApply;
+  let signalApply;
+  const applyReached = new Promise(resolve => { signalApply = resolve; });
+  const applyGate = new Promise(resolve => { releaseApply = resolve; });
+  const queue = reconcileMutationStep({
+    store, key: "operation", validate() {}, step: "RELEASE_QUEUE",
+    authorizeBeforeApply: isSmsDownstreamAuthorized,
+    inspect: async () => externalCommitted
+      ? { state: "EXACT", evidence: { release_id: "REL-1" } }
+      : { state: "NEEDS_APPLY" },
+    apply: async () => { externalCommitted = true; signalApply(); await applyGate; }
+  });
+  await applyReached;
+  let dispatches = 0;
+  const blocked = await runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "SMS", disabled: false,
+    retryGuard: current => isCompletedConsequence(current, "RELEASE_QUEUE"),
+    dispatch: async () => { dispatches += 1; return { sent: true }; }
+  });
+  assert.equal(blocked.status, "PREREQUISITE_BLOCKED");
+  assert.equal(dispatches, 0);
+  releaseApply();
+  await queue;
+  assert.equal(store.value().consequence_state.RELEASE_QUEUE.status, STEP_STATUS.COMPLETED);
+});
+
+test("ReleaseQueue external-commit crash blocks SMS retry until exact-state reconciliation", async () => {
+  const record = definitiveSmsPending(acceptedRecord(DECISION_TYPES.AFTER_HOURS_RELEASE));
+  record.continuation.release_id = "REL-1";
+  const store = storeWith(record);
+  let externalCommitted = false;
+  let applies = 0;
+  const options = {
+    store, key: "operation", validate() {}, step: "RELEASE_QUEUE",
+    authorizeBeforeApply: isSmsDownstreamAuthorized,
+    inspect: async () => externalCommitted
+      ? { state: "EXACT", evidence: { release_id: "REL-1" } }
+      : { state: "NEEDS_APPLY" },
+    apply: async () => { applies += 1; externalCommitted = true; }
+  };
+  await assert.rejects(() => reconcileMutationStep({ ...options, afterApply: async () => { throw new Error("crash"); } }), /crash/);
+  let dispatches = 0;
+  const retry = () => runAtMostOnceDispatch({
+    store, key: "operation", validate() {}, step: "SMS", disabled: false,
+    retryGuard: current => isCompletedConsequence(current, "RELEASE_QUEUE"),
+    dispatch: async () => { dispatches += 1; return { sent: true, sid: "SM-AFTER" }; }
+  });
+  assert.equal((await retry()).status, "PREREQUISITE_BLOCKED");
+  await reconcileMutationStep(options);
+  assert.equal(applies, 1);
+  assert.equal((await retry()).status, "COMPLETED");
+  assert.equal(dispatches, 1);
+});
+
+for (const status of [STEP_STATUS.DISPATCHING, STEP_STATUS.AMBIGUOUS, STEP_STATUS.MANUAL_RECONCILIATION]) {
+  test(`lifecycle recovery remains eligible with retry-lineage SMS ${status}`, async () => {
+    const record = acceptedRecord(DECISION_TYPES.AFTER_HOURS_RELEASE);
+    record.continuation.release_id = "REL-1";
+    record.consequence_state.SMS = dispatchState(status, status === STEP_STATUS.DISPATCHING
+      ? { dispatch_started: true, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }
+      : { reason: "UNKNOWN", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" });
+    record.consequence_state.RELEASE_QUEUE = dispatchState(STEP_STATUS.COMPLETED, { release_id: "REL-1" });
+    const store = storeWith(record);
+    let lifecycleExists = false;
+    let creates = 0;
+    await reconcileCreateStep({
+      store, key: "operation", validate() {}, step: "LIFECYCLE_EVENT",
+      inspect: async () => lifecycleExists
+        ? { state: "EXACT", evidence: { event_id: "EV-1", lead_id: "L-1", row_number: 2 } }
+        : { state: "ABSENT" },
+      create: async () => { creates += 1; lifecycleExists = true; }
+    });
+    await reconcileCreateStep({
+      store, key: "operation", validate() {}, step: "LIFECYCLE_EVENT",
+      inspect: async () => ({ state: "EXACT", evidence: { event_id: "EV-1", lead_id: "L-1", row_number: 2 } }),
+      create: async () => { creates += 1; }
+    });
+    assert.equal(creates, 1);
+    assert.equal(store.value().consequence_state.LIFECYCLE_EVENT.status, STEP_STATUS.COMPLETED);
+  });
+}

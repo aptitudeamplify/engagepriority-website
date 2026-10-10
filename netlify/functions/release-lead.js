@@ -14,7 +14,14 @@ const {
 } = require("./_shared/routing-coordination-contract");
 const { createRoutingCoordinationClient, loadRoutingCoordinationConfig } = require("./_shared/routing-coordination-client");
 const { createRoutingCoordinationObligationStore } = require("./_shared/routing-coordination-obligation-store");
-const { coordinateRoutingCommit, routingCoordinationMode, routingOperationKey, validateRoutingObligation } = require("./_shared/routing-coordination");
+const {
+  coordinateRoutingCommit,
+  isCompletedConsequence,
+  isSmsDownstreamAuthorized,
+  routingCoordinationMode,
+  routingOperationKey,
+  validateRoutingObligation
+} = require("./_shared/routing-coordination");
 const { inspectUniqueRows, reconcileCreateStep, reconcileMutationStep, runAtMostOnceDispatch } = require("./_shared/routing-continuation");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
@@ -837,12 +844,21 @@ exports.handler = async (event, context) => {
           validate: createReleaseObligationValidator(releaseContinuationContext),
           step: "SMS",
           dispatch: () => sendSmsIfEnabled(smsPayload),
+          retryGuard: record => isCompletedConsequence(record, "RELEASE_QUEUE"),
           disabled: String(process.env.ENABLE_SMS_SEND || "").toLowerCase() !== "true"
         });
-        if (dispatched.status === "AMBIGUOUS") {
+        const current = await releaseContinuationContext.obligationStore.read(releaseContinuationContext.operationKey);
+        if (!current) throw new Error("Routing coordination obligation disappeared.");
+        createReleaseObligationValidator(releaseContinuationContext)(current.record, releaseContinuationContext.operationKey);
+        if (dispatched.status === "AMBIGUOUS" && !isCompletedConsequence(current.record, "RELEASE_QUEUE")) {
           return { statusCode: 202, body: JSON.stringify({ status: "SMS_MANUAL_RECONCILIATION_REQUIRED", release_id, lead_id: leadId }) };
         }
-        smsResult = dispatched.result || { sent: false, reason: dispatched.evidence.provider_status };
+        smsResult = dispatched.result || {
+          sent: false,
+          reason: dispatched.status === "PREREQUISITE_BLOCKED"
+            ? "RELEASE_QUEUE_COMPLETION_REQUIRED"
+            : (dispatched.evidence.provider_status || dispatched.evidence.reason)
+        };
       } else {
         smsResult = await sendSmsIfEnabled(smsPayload);
       }
@@ -867,6 +883,7 @@ exports.handler = async (event, context) => {
     await reconcileReleaseMutation({
       context: releaseContinuationContext,
       step: "RELEASE_QUEUE",
+      authorizeBeforeApply: isSmsDownstreamAuthorized,
       inspect: async () => {
         const values = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "ReleaseQueue!A1:Z10000" })).data.values || [];
         const rows = rowsToObjects(values).filter(value => value.release_id === release_id);
@@ -1102,7 +1119,7 @@ function assertReleaseContinuationBinding({
       const expected = continuation.lifecycle_identity[field];
       const leadValue = rowValue(leadLogHeaders, leadLogRow, field);
       const queueValue = rowValue(releaseHeaders, releaseRow, field);
-      if (leadValue && leadValue !== expected) throw new Error(`Authoritative LeadLog identity mismatch: ${field}`);
+      if (leadValue !== expected) throw new Error(`Authoritative LeadLog identity mismatch: ${field}`);
       if (queueValue && queueValue !== expected) throw new Error(`Authoritative ReleaseQueue identity mismatch: ${field}`);
     }
   }
@@ -1798,7 +1815,7 @@ async function reconcileReleaseCreate({ context, step, sheets, spreadsheetId, ra
   });
 }
 
-async function reconcileReleaseMutation({ context, step, inspect, apply }) {
+async function reconcileReleaseMutation({ context, step, inspect, apply, authorizeBeforeApply }) {
   if (!context) {
     await apply();
     return { state: "EXACT" };
@@ -1810,6 +1827,7 @@ async function reconcileReleaseMutation({ context, step, inspect, apply }) {
     step,
     inspect,
     apply,
+    authorizeBeforeApply,
     afterApply: releaseTestRuntime?.afterRoutingConsequenceCreate
   });
 }

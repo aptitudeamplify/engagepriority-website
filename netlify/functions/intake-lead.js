@@ -32,6 +32,7 @@ const {
 } = require("./_shared/routing-coordination-obligation-store");
 const {
   coordinateRoutingCommit,
+  isSmsDownstreamAuthorized,
   routingCoordinationMode,
   routingOperationKey,
   validateRoutingObligation
@@ -1209,9 +1210,12 @@ if (INTAKE_PROJECTION_MODE === "NETLIFY_DIRECT") {
         return result;
       },
       evidenceFromResult: result => ({ status: result?.status || "UNKNOWN" }),
+      establishGuard: isSmsDownstreamAuthorized,
       disabled: false
     });
-    postCommitProjection = projectionDispatch.status === "AMBIGUOUS"
+    postCommitProjection = projectionDispatch.status === "PREREQUISITE_BLOCKED"
+      ? projectionRepairRequired("LEGACY_MAKE_DOWNSTREAM_NOT_AUTHORIZED")
+      : projectionDispatch.status === "AMBIGUOUS"
       ? projectionRepairRequired("LEGACY_MAKE_HANDOFF_AMBIGUOUS")
       : (projectionDispatch.result || { status: projectionDispatch.evidence.status });
   } else {

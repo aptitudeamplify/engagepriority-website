@@ -149,6 +149,72 @@ function memoryStore() {
   };
 }
 
+function consequence(status, evidence) {
+  return { status, evidence, updated_ts_utc: "2026-10-07T12:01:00.000Z" };
+}
+
+async function acceptedFixture(decisionType = DECISION_TYPES.INITIAL_INTAKE) {
+  const request = decisionType === DECISION_TYPES.INITIAL_INTAKE
+    ? sampleRequest()
+    : buildSemanticRequest({
+        environment: "TEST",
+        decision_type: DECISION_TYPES.AFTER_HOURS_RELEASE,
+        client_id: "C-001",
+        logical_reference: { logical_reference_contract: CONTRACTS.afterHoursRelease, client_id: "C-001", release_id: "REL-1" },
+        expected_state: { routing_state_version: 4, routing_pointer: 1, routing_state_fingerprint: `sha256:${"a".repeat(64)}` },
+        proposal: { selected_agent_id: "A-2", routing_pointer_after: 2, total_assignments_today_after: 5, notes_after: "" },
+        semantic_evidence: {}
+      });
+  const store = memoryStore();
+  await coordinateRoutingCommit({
+    logicalReference: request.logical_reference,
+    environment: "TEST",
+    buildAttempt: async () => ({ request, continuation: validContinuation(request, { releaseId: "REL-1" }) }),
+    obligationStore: store,
+    client: verifiedClient(async value => signedResponse(value))
+  });
+  const key = routingOperationKey("TEST", request.logical_reference);
+  return {
+    record: structuredClone(store.map.get(key).record),
+    key,
+    logicalReference: request.logical_reference,
+    verifyResponse: (response, semanticRequest) => verifyCoordinatorResponse(response, semanticRequest, config)
+  };
+}
+
+function validateFixture(fixture, consequenceState) {
+  return validateRoutingObligation({
+    record: { ...fixture.record, consequence_state: consequenceState },
+    key: fixture.key,
+    environment: "TEST",
+    logicalReference: fixture.logicalReference,
+    verifyResponse: fixture.verifyResponse
+  });
+}
+
+function validIntakeState() {
+  return {
+    LEAD_LOG: consequence("COMPLETED", { lead_id: "L-1", row_number: 2 }),
+    LEAD_INDEX: consequence("COMPLETED", { lead_id: "L-1", row_number: 3 }),
+    REMINDER: consequence("COMPLETED", { assignment_id: "as-1", row_number: 4 }),
+    ACTION_LINK: consequence("COMPLETED", { gateway_id: "gw-1", row_number: 5 }),
+    IDEMPOTENCY: consequence("COMPLETED", { lead_id: "L-1", row_number: 6 }),
+    SMS: consequence("COMPLETED", { dispatched: true, provider_message_id: "SM-1", provider_status: "SUBMITTED" }),
+    LEGACY_PROJECTION: consequence("COMPLETED", { status: "LEGACY_MAKE_SUBMITTED" })
+  };
+}
+
+function validReleaseState() {
+  return {
+    LEAD_LOG: consequence("COMPLETED", { lead_id: "L-1" }),
+    ACTION_LINK: consequence("COMPLETED", { gateway_id: "gw-1", lead_id: "L-1", row_number: 2 }),
+    REMINDER: consequence("COMPLETED", { assignment_id: "as-1", lead_id: "L-1", row_number: 3 }),
+    SMS: consequence("COMPLETED", { dispatched: false, reason: "DISABLED" }),
+    RELEASE_QUEUE: consequence("COMPLETED", { release_id: "REL-1" }),
+    LIFECYCLE_EVENT: consequence("COMPLETED", { event_id: "event-1", lead_id: "L-1", row_number: 4 })
+  };
+}
+
 test("GAS fingerprint fixture remains byte-for-byte compatible", () => {
   for (const vector of fixture) {
     const actual = routingStateFingerprint(vector.raw);
@@ -555,6 +621,36 @@ test("release admission is phase-aware and authoritative identity binding fails 
     leadLogRow: ["L-1", "C-001", "PENDING_RELEASE"],
     phase: "PENDING"
   }), /authoritative release identity/i);
+  const headers = ["release_id", "client_id", "lead_id", "lifecycle_id", "policy_snapshot_id"];
+  const leadHeaders = ["lead_id", "client_id", "lead_status", "lifecycle_id", "policy_snapshot_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot"];
+  const base = {
+    continuation: { ...continuation, assignment_identity: { lifecycle_id: "L-1", policy_snapshot_id: "ps-1", assignment_id: "as-1", assignment_sequence: 1, owner_epoch_id: "oe-1", agent_id_snapshot: "A-1" } },
+    clientId: "C-001", leadId: "L-1", releaseId: "REL-1",
+    releaseHeaders: headers,
+    releaseRow: ["REL-1", "C-001", "L-1", "L-1", "ps-1"],
+    leadLogHeaders: leadHeaders,
+    leadLogRow: ["L-1", "C-001", "NEW", "L-1", "ps-1", "as-1", "1", "oe-1", "A-1"],
+    phase: "ACCEPTED"
+  };
+  assert.doesNotThrow(() => release._test.assertReleaseContinuationBinding(base));
+  for (const [label, mutate] of [
+    ["blank lifecycle", args => { args.leadLogRow[3] = ""; }],
+    ["blank policy", args => { args.leadLogRow[4] = ""; }],
+    ["lifecycle mismatch", args => { args.leadLogRow[3] = "other"; }],
+    ["policy mismatch", args => { args.leadLogRow[4] = "other"; }],
+    ["queue lifecycle mismatch", args => { args.releaseRow[3] = "other"; }],
+    ["queue policy mismatch", args => { args.releaseRow[4] = "other"; }],
+    ["assignment mismatch", args => { args.leadLogRow[5] = "other"; }]
+  ]) {
+    const args = structuredClone(base); mutate(args);
+    assert.throws(() => release._test.assertReleaseContinuationBinding(args), label);
+  }
+  const legacy = structuredClone(base);
+  legacy.continuation.lifecycle_identity = null;
+  legacy.continuation.assignment_identity = null;
+  legacy.leadLogRow = ["L-1", "C-001", "PENDING_RELEASE", "", "", "", "", "", ""];
+  legacy.releaseRow = ["REL-1", "C-001", "L-1", "", ""];
+  assert.doesNotThrow(() => release._test.assertReleaseContinuationBinding(legacy));
 });
 
 test("pending release obligation rejects already-created gateway or reminder consequences", async () => {
@@ -732,6 +828,117 @@ test("obligation validation rejects unsupported schema, corrupt accepted proof, 
   ]) {
     assert.throws(() => validateRoutingObligation({ record: mutation(structuredClone(baseline)), key, environment: "TEST", logicalReference: request.logical_reference, verifyResponse }));
   }
+});
+
+test("consequence status applicability is exact for Sheet, dispatch, and create steps", async () => {
+  const intake = await acceptedFixture();
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  for (const [fixture, steps] of [
+    [intake, ["LEAD_LOG", "LEAD_INDEX", "REMINDER", "ACTION_LINK", "IDEMPOTENCY"]],
+    [release, ["LEAD_LOG", "ACTION_LINK", "REMINDER", "RELEASE_QUEUE", "LIFECYCLE_EVENT"]]
+  ]) {
+    for (const step of steps) {
+      for (const [status, evidence] of [
+        ["PENDING", { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "NO" }],
+        ["DISPATCHING", { dispatch_started: true }],
+        ["AMBIGUOUS", { reason: "UNKNOWN" }],
+        ["MANUAL_RECONCILIATION", { reason: "MANUAL" }]
+      ]) assert.throws(() => validateFixture(fixture, { [step]: consequence(status, evidence) }), `${step}:${status}`);
+    }
+  }
+  for (const [fixture, step] of [[intake, "SMS"], [intake, "LEGACY_PROJECTION"], [release, "LEAD_LOG"], [release, "RELEASE_QUEUE"]]) {
+    assert.throws(() => validateFixture(fixture, { [step]: consequence("CREATING", { claim_id: "claim-1" }) }), step);
+  }
+});
+
+test("exact completed evidence rejects missing, extra, blank, malformed, and identity-mismatched values", async () => {
+  const intake = await acceptedFixture();
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  assert.doesNotThrow(() => validateFixture(intake, validIntakeState()));
+  assert.doesNotThrow(() => validateFixture(release, validReleaseState()));
+  const mutations = [
+    [intake, validIntakeState, "LEAD_LOG", { lead_id: "wrong", row_number: 2 }],
+    [intake, validIntakeState, "LEAD_INDEX", { lead_id: "wrong", row_number: 3 }],
+    [intake, validIntakeState, "REMINDER", { assignment_id: "wrong", row_number: 4 }],
+    [intake, validIntakeState, "ACTION_LINK", { gateway_id: "wrong", row_number: 5 }],
+    [intake, validIntakeState, "IDEMPOTENCY", { lead_id: "wrong", row_number: 6 }],
+    [release, validReleaseState, "LEAD_LOG", { lead_id: "wrong" }],
+    [release, validReleaseState, "ACTION_LINK", { gateway_id: "wrong", lead_id: "L-1", row_number: 2 }],
+    [release, validReleaseState, "ACTION_LINK", { gateway_id: "gw-1", lead_id: "wrong", row_number: 2 }],
+    [release, validReleaseState, "REMINDER", { assignment_id: "wrong", lead_id: "L-1", row_number: 3 }],
+    [release, validReleaseState, "REMINDER", { assignment_id: "as-1", lead_id: "wrong", row_number: 3 }],
+    [release, validReleaseState, "RELEASE_QUEUE", { release_id: "wrong" }],
+    [release, validReleaseState, "LIFECYCLE_EVENT", { event_id: "wrong", lead_id: "L-1", row_number: 4 }],
+    [release, validReleaseState, "LIFECYCLE_EVENT", { event_id: "event-1", lead_id: "wrong", row_number: 4 }]
+  ];
+  for (const [fixture, build, step, evidence] of mutations) {
+    const state = build();
+    state[step] = consequence("COMPLETED", evidence);
+    assert.throws(() => validateFixture(fixture, state), step);
+  }
+  for (const bad of [
+    { dispatched: true, provider_status: "SUBMITTED" },
+    { dispatched: true, provider_message_id: "", provider_status: "SUBMITTED" },
+    { dispatched: true, provider_message_id: "SM-1", provider_status: "SENT" },
+    { dispatched: false, reason: "DISABLED", extra: true }
+  ]) {
+    const state = validIntakeState(); state.SMS = consequence("COMPLETED", bad);
+    assert.throws(() => validateFixture(intake, state));
+  }
+  for (const bad of [{}, { status: "SUBMITTED" }, { status: "LEGACY_MAKE_SUBMITTED", extra: true }]) {
+    const state = validIntakeState(); state.LEGACY_PROJECTION = consequence("COMPLETED", bad);
+    assert.throws(() => validateFixture(intake, state));
+  }
+  for (const [step, row] of [["LEAD_LOG", 1], ["LEAD_INDEX", 2.5], ["REMINDER", NaN], ["ACTION_LINK", 0], ["IDEMPOTENCY", "2"]]) {
+    const state = validIntakeState(); state[step].evidence.row_number = row;
+    assert.throws(() => validateFixture(intake, state), step);
+  }
+});
+
+test("whole-record predecessors reject every skipped intake and release consequence", async () => {
+  const intake = await acceptedFixture();
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  const intakePairs = [["LEAD_INDEX", "LEAD_LOG"], ["REMINDER", "LEAD_INDEX"], ["ACTION_LINK", "REMINDER"], ["IDEMPOTENCY", "ACTION_LINK"], ["SMS", "IDEMPOTENCY"]];
+  for (const [step, predecessor] of intakePairs) {
+    const state = validIntakeState(); delete state[predecessor];
+    assert.throws(() => validateFixture(intake, state), `${step} requires ${predecessor}`);
+  }
+  const releasePairs = [["ACTION_LINK", "LEAD_LOG"], ["REMINDER", "ACTION_LINK"], ["SMS", "REMINDER"], ["LIFECYCLE_EVENT", "RELEASE_QUEUE"]];
+  for (const [step, predecessor] of releasePairs) {
+    const state = validReleaseState(); delete state[predecessor];
+    assert.throws(() => validateFixture(release, state), `${step} requires ${predecessor}`);
+  }
+});
+
+test("dispatch retry provenance and exact evidence distinguish first dispatch from retry lineage", async () => {
+  const intake = await acceptedFixture();
+  const base = validIntakeState();
+  delete base.LEGACY_PROJECTION;
+  for (const accepted of [
+    consequence("PENDING", { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "HTTP_503" }),
+    consequence("DISPATCHING", { dispatch_started: true }),
+    consequence("DISPATCHING", { dispatch_started: true, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("AMBIGUOUS", { reason: "UNKNOWN", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("MANUAL_RECONCILIATION", { reason: "MANUAL", error_code: "X", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" })
+  ]) assert.doesNotThrow(() => validateFixture(intake, { ...base, SMS: accepted }));
+  for (const rejected of [
+    consequence("PENDING", {}),
+    consequence("PENDING", { reason: "OTHER", error_code: "X" }),
+    consequence("DISPATCHING", { dispatch_started: true, retry_provenance: "OTHER" }),
+    consequence("DISPATCHING", { dispatch_started: true, extra: true }),
+    consequence("AMBIGUOUS", { reason: "UNKNOWN", retry_provenance: "" }),
+    consequence("MANUAL_RECONCILIATION", { reason: "MANUAL", retry_provenance: "OTHER" })
+  ]) assert.throws(() => validateFixture(intake, { ...base, SMS: rejected }));
+});
+
+test("pending coordinator obligation cannot carry consequence progress", async () => {
+  const fixture = await acceptedFixture();
+  const pending = structuredClone(fixture.record);
+  pending.phase = "PENDING";
+  delete pending.coordinator_response;
+  delete pending.accepted_ts_utc;
+  pending.consequence_state = { SMS: consequence("PENDING", { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "X" }) };
+  assert.throws(() => validateRoutingObligation({ record: pending, key: fixture.key, environment: "TEST", logicalReference: fixture.logicalReference, verifyResponse: fixture.verifyResponse }));
 });
 
 test("producer persists before send, reuses ambiguous identity, retires definitive identity, and separates edited/new content", async () => {
