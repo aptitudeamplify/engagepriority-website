@@ -745,6 +745,7 @@ if (routingStateMode === "GAS_COORDINATED") {
       request,
       continuation: {
         operation_kind: DECISION_TYPES.INITIAL_INTAKE,
+        client_id: client.client_id,
         lead_id: leadId,
         lifecycle_identity: lifecycleIdentity,
         assignment_identity: candidateAssignmentIdentity,
@@ -947,6 +948,7 @@ const leadLogObserved = await reconcileIntakeCreate({
     value.assignment_id === assignmentIdentity.assignment_id &&
     value.owner_epoch_id === assignmentIdentity.owner_epoch_id &&
     value.policy_snapshot_id === assignmentIdentity.policy_snapshot_id,
+  evidence: value => ({ lead_id: value.lead_id, row_number: value._row_number }),
   create: async () => sheets.spreadsheets.values.append({
     spreadsheetId: leadDataSpreadsheetId,
     range: "LeadLog_Active!A1",
@@ -964,6 +966,7 @@ await reconcileIntakeCreate({
   range: "LeadIndex!A1:F10000",
   match: value => value.lead_id === leadId,
   exact: value => value.client_id === client.client_id && String(value.leadlog_row || "") === String(leadLogRowNumber),
+  evidence: value => ({ lead_id: value.lead_id, row_number: value._row_number }),
   create: () => appendLeadIndexRow({
     sheets,
     spreadsheetId: leadDataSpreadsheetId,
@@ -1006,6 +1009,7 @@ await reconcileIntakeCreate({
     value.assigned_agent_id === assignmentResult.assigned_agent_id &&
     value.next_action_due_ts_utc === nextActionDue && value.active_monitoring === "TRUE" &&
     value.trace_id === trace_id && value.lifecycle_id === assignmentIdentity.lifecycle_id,
+  evidence: value => ({ assignment_id: value.assignment_id, row_number: value._row_number }),
   create: () => sheets.spreadsheets.values.append({
     spreadsheetId: SHEET_ID,
     range: "ReminderQueue!A1",
@@ -1033,6 +1037,7 @@ await reconcileIntakeCreate({
   range: "Idempotency!A1:H10000",
   match: value => value.idempotency_key === idempotencyKey,
   exact: value => value.client_id === client.client_id && value.lead_id === leadId && value.source_token === sourceToken,
+  evidence: value => ({ lead_id: value.lead_id, row_number: value._row_number }),
   create: () => appendIdempotencyRow({
     sheets,
     spreadsheetId: leadDataSpreadsheetId,
@@ -2265,6 +2270,7 @@ async function createInitialActionLinks({
     exact: value => value.lead_id === lead_id && value.client_id === client.client_id &&
       value.assigned_agent_id === assigned_agent_id &&
       value.gateway_id === results.INITIAL_RESPONSE_GATEWAY.gateway_id && value.assignment_id === assignment_identity.assignment_id,
+    evidence: value => ({ gateway_id: value.gateway_id, row_number: value._row_number }),
     create: () => sheets.spreadsheets.values.append({
       spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
       range: "ActionLinkMap!A:Y",
@@ -2292,12 +2298,12 @@ function createIntakeObligationValidator(context) {
   });
 }
 
-async function reconcileIntakeCreate({ context, step, sheets, spreadsheetId, range, match, exact, create }) {
+async function reconcileIntakeCreate({ context, step, sheets, spreadsheetId, range, match, exact, evidence, create }) {
   if (!context) {
     const result = await create();
     const updatedRange = result?.data?.updates?.updatedRange || "";
     const rowMatch = updatedRange.match(/![A-Z]+(\d+):/);
-    return { state: "EXACT", evidence: { row_number: rowMatch ? rowMatch[1] : "" } };
+    return { state: "EXACT", evidence: { row_number: rowMatch ? Number(rowMatch[1]) : 0 } };
   }
   const inspect = async () => {
     const rows = await readSheetRows(sheets, spreadsheetId, range);
@@ -2305,10 +2311,9 @@ async function reconcileIntakeCreate({ context, step, sheets, spreadsheetId, ran
     return inspectUniqueRows(objects, {
       match,
       exact,
-      evidence(value) {
-        const index = objects.indexOf(value);
-        return { row_number: String(index + 2) };
-      }
+      evidence: value => evidence
+        ? evidence({ ...value, _row_number: objects.indexOf(value) + 2 })
+        : { row_number: objects.indexOf(value) + 2 }
     });
   };
   return reconcileCreateStep({

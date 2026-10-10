@@ -102,6 +102,7 @@ function validContinuation(request, { leadId = "L-1", releaseId = "release-001" 
   };
   return {
     operation_kind: request.decision_type,
+    client_id: request.client_id,
     ...(request.decision_type === DECISION_TYPES.AFTER_HOURS_RELEASE ? { release_id: releaseId } : {}),
     lead_id: leadId,
     lifecycle_identity: { lifecycle_id: leadId, policy_snapshot_id: "ps-1" },
@@ -175,6 +176,46 @@ test("commit and request identity are deterministic and semantic evidence is exa
   assert.equal(first.routing_commit_id, second.routing_commit_id);
   assert.equal(first.request_fingerprint, second.request_fingerprint);
   assert.throws(() => sampleRequest({ semantic_evidence: { extra: true } }));
+  const missing = { ...sampleRequest() };
+  delete missing.proposal;
+  assert.throws(() => buildSemanticRequest(missing), /unknown or missing keys/i);
+});
+
+test("initial intake rejects null assignment identity before coordinator dispatch", async () => {
+  const request = sampleRequest();
+  const continuation = validContinuation(request);
+  continuation.assignment_identity = null;
+  delete continuation.plan.gateway_id;
+  let dispatches = 0;
+  await assert.rejects(() => coordinateRoutingCommit({
+    logicalReference: request.logical_reference,
+    environment: "TEST",
+    buildAttempt: async () => ({ request, continuation }),
+    obligationStore: memoryStore(),
+    client: verifiedClient(async () => { dispatches += 1; })
+  }), /assignment identity is required/i);
+  assert.equal(dispatches, 0);
+});
+
+test("release continuation must bind the exact logical release id", async () => {
+  const request = buildSemanticRequest({
+    environment: "TEST",
+    decision_type: DECISION_TYPES.AFTER_HOURS_RELEASE,
+    client_id: "C-001",
+    logical_reference: { logical_reference_contract: CONTRACTS.afterHoursRelease, client_id: "C-001", release_id: "REL-1" },
+    expected_state: { routing_state_version: 4, routing_pointer: 1, routing_state_fingerprint: `sha256:${"a".repeat(64)}` },
+    proposal: { selected_agent_id: "A-2", routing_pointer_after: 2, total_assignments_today_after: 5, notes_after: "" },
+    semantic_evidence: {}
+  });
+  let dispatches = 0;
+  await assert.rejects(() => coordinateRoutingCommit({
+    logicalReference: request.logical_reference,
+    environment: "TEST",
+    buildAttempt: async () => ({ request, continuation: validContinuation(request, { releaseId: "REL-OTHER" }) }),
+    obligationStore: memoryStore(),
+    client: verifiedClient(async () => { dispatches += 1; })
+  }), /continuation release mismatch/i);
+  assert.equal(dispatches, 0);
 });
 
 test("fresh authentication changes only nonce/time, not semantic identities", () => {
@@ -406,7 +447,7 @@ test("coordinated intake rejects a missing source event and never fabricates one
   }
 });
 
-test("coordinated intake commits through the client and performs no direct RoutingState write", async () => {
+test("coordinated intake handler recovers a post-LeadLog crash without duplicate consequences", async () => {
   const previousMode = process.env.EP_ROUTING_STATE_MODE;
   const previousSms = process.env.ENABLE_SMS_SEND;
   const previousGoogle = process.env.GOOGLE_SERVICE_ACCOUNT;
@@ -446,17 +487,27 @@ test("coordinated intake commits through the client and performs no direct Routi
   } } };
   const store = memoryStore();
   const sent = [];
+  let crashed = false;
   intake._test.setRuntime({
     sheets,
     routingCoordinationConfig: { ...config, environment: "TEST" },
     routingCoordinationObligationStore: store,
-    routingCoordinationClient: verifiedClient(async request => { sent.push(request); return signedResponse(request); })
+    routingCoordinationClient: verifiedClient(async request => { sent.push(request); return signedResponse(request); }),
+    afterRoutingConsequenceCreate: async step => {
+      if (!crashed && step === "LEAD_LOG") {
+        crashed = true;
+        throw new Error("simulated intake handler crash");
+      }
+    }
   });
   try {
-    const response = await intake.handler({ httpMethod: "POST", body: JSON.stringify({
+    const event = { httpMethod: "POST", body: JSON.stringify({
       intake_client_reference: "test-form", source_system: "WEBSITE", source_detail: "test-form",
       source_event_id: "evt-001", full_name: "Synthetic", email: "synthetic@example.invalid", phone: "+15555550100"
-    }) }, {});
+    }) };
+    const failed = await intake.handler(event, {});
+    assert.equal(failed.statusCode, 500, failed.body);
+    const response = await intake.handler(event, {});
     assert.equal(response.statusCode, 200, response.body);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].decision_type, "INITIAL_INTAKE");
@@ -464,13 +515,64 @@ test("coordinated intake commits through the client and performs no direct Routi
     assert.equal(sent[0].proposal.total_assignments_today_after, 8);
     assert.equal(sent[0].proposal.notes_after, "keep");
     assert.equal(updates.some(call => String(call.range).startsWith("RoutingState!")), false);
-    assert.ok(appends.some(call => call.range.startsWith("LeadLog_Active!")));
+    for (const table of ["LeadLog_Active", "LeadIndex", "ReminderQueue", "ActionLinkMap", "Idempotency"]) {
+      assert.equal(appends.filter(call => call.range.startsWith(`${table}!`)).length, 1, table);
+    }
   } finally {
     intake._test.setRuntime(null);
     if (previousMode === undefined) delete process.env.EP_ROUTING_STATE_MODE; else process.env.EP_ROUTING_STATE_MODE = previousMode;
     if (previousSms === undefined) delete process.env.ENABLE_SMS_SEND; else process.env.ENABLE_SMS_SEND = previousSms;
     if (previousGoogle === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT; else process.env.GOOGLE_SERVICE_ACCOUNT = previousGoogle;
   }
+});
+
+test("release admission is phase-aware and authoritative identity binding fails closed", () => {
+  const release = require("../netlify/functions/release-lead");
+  const classify = release._test.classifyReleaseAdmission;
+  const classifyLead = release._test.classifyReleaseLeadAdmission;
+  assert.equal(classify({ coordinationPhase: "PENDING", queueStatus: "PROCESSING", releasedTsUtc: "" }).allowed, true);
+  for (const status of ["RELEASED", "RELEASE_FAILED"]) {
+    assert.equal(classify({ coordinationPhase: "PENDING", queueStatus: status, releasedTsUtc: status === "RELEASED" ? "2026-10-07T12:00:00Z" : "" }).allowed, false);
+    assert.equal(classify({ coordinationPhase: "ACCEPTED", queueStatus: status, releasedTsUtc: status === "RELEASED" ? "2026-10-07T12:00:00Z" : "" }).allowed, true);
+  }
+  assert.equal(classify({ coordinationPhase: "ACCEPTED", queueStatus: "PROCESSING", releasedTsUtc: "" }).allowed, true);
+  assert.equal(classifyLead({ coordinationPhase: "PENDING", leadStatus: "NEW" }).allowed, false);
+  assert.equal(classifyLead({ coordinationPhase: "ACCEPTED", leadStatus: "NEW" }).allowed, true);
+  assert.equal(classifyLead({ coordinationPhase: "PENDING", leadStatus: "PENDING_RELEASE" }).allowed, true);
+  const continuation = {
+    client_id: "C-001", lead_id: "L-1", release_id: "REL-1",
+    lifecycle_identity: { lifecycle_id: "L-1", policy_snapshot_id: "ps-1" },
+    assignment_identity: null
+  };
+  assert.throws(() => release._test.assertReleaseContinuationBinding({
+    continuation,
+    clientId: "C-001",
+    leadId: "L-OTHER",
+    releaseId: "REL-1",
+    releaseHeaders: ["release_id", "client_id", "lead_id"],
+    releaseRow: ["REL-1", "C-001", "L-1"],
+    leadLogHeaders: ["lead_id", "client_id", "lead_status"],
+    leadLogRow: ["L-1", "C-001", "PENDING_RELEASE"],
+    phase: "PENDING"
+  }), /authoritative release identity/i);
+});
+
+test("pending release obligation rejects already-created gateway or reminder consequences", async () => {
+  const release = require("../netlify/functions/release-lead");
+  const continuation = {
+    assignment_identity: { assignment_id: "as-1" },
+    plan: { gateway_id: "gw-1" }
+  };
+  const sheets = { spreadsheets: { values: { async get({ range }) {
+    if (range.startsWith("ActionLinkMap!")) return { data: { values: [
+      ["client_id", "lead_id", "gateway_id", "assignment_id"],
+      ["C-001", "L-1", "gw-1", "as-1"]
+    ] } };
+    return { data: { values: [["client_id", "lead_id", "assignment_id"]] } };
+  } } } };
+  await assert.rejects(() => release._test.assertNoPendingReleaseConsequences({
+    sheets, continuation, clientId: "C-001", leadId: "L-1", leadDataSpreadsheetId: "LEADS"
+  }), /post-assignment consequences/i);
 });
 
 test("claimed coordinated release with no obligation reconstructs pre-GAS and never directly writes RoutingState", async () => {
@@ -521,6 +623,91 @@ test("claimed coordinated release with no obligation reconstructs pre-GAS and ne
   }
 });
 
+test("coordinated release handler recovers a post-gateway crash without duplicate consequences", async () => {
+  const previousMode = process.env.EP_ROUTING_STATE_MODE;
+  const previousSecret = process.env.EP_RELEASE_SHARED_SECRET;
+  const previousGoogle = process.env.GOOGLE_SERVICE_ACCOUNT;
+  const previousSms = process.env.ENABLE_SMS_SEND;
+  process.env.EP_ROUTING_STATE_MODE = "GAS_COORDINATED";
+  process.env.EP_RELEASE_SHARED_SECRET = "release-secret";
+  process.env.GOOGLE_SERVICE_ACCOUNT = "{}";
+  process.env.ENABLE_SMS_SEND = "false";
+  const release = require("../netlify/functions/release-lead");
+  const tables = {
+    ReleaseQueue: [["release_id", "client_id", "lead_id", "status", "released_ts_utc", "dispatch_claimed_ts_utc", "release_attempts", "notes", "release_result", "assigned_agent_id", "lifecycle_id", "policy_snapshot_id"], ["REL-2", "C-001", "L-2", "PENDING", "", "", "0", "", "", "", "L-2", "ps-1"]],
+    Clients: [["client_id", "lead_data_spreadsheet_id", "routing_strategy", "reminder_1_delay_minutes"], ["C-001", "LEADS", "WEIGHTED_INTERLEAVED", "15"]],
+    LeadLog_Active: [["lead_id", "client_id", "lead_status", "trace_id", "lifecycle_id", "policy_snapshot_id", "assigned_agent_id", "assigned_timestamp", "assignment_ts_utc", "assignment_attempt_count", "last_updated_timestamp", "routing_reason", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot"], ["L-2", "C-001", "PENDING_RELEASE", "TRACE-2", "L-2", "ps-1", "", "", "", "0", "", "", "", "", "", ""]],
+    Agents: [["agent_id", "client_id", "agent_status", "assignment_weight", "priority_slot", "agent_phone"], ["A-1", "C-001", "ACTIVE", "1", "1", "+15555550100"]],
+    RoutingState: [["client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id", "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"], ["C-001", "4", "0", "", "", "7", "keep", ""]],
+    ActionLinkMap: [["short_code", "public_url", "gateway_context", "selected_action", "lead_id", "client_id", "lead_data_spreadsheet_id", "assigned_agent_id", "expires_ts_utc", "active", "created_ts_utc", "used_ts_utc", "notes", "deactivated_ts_utc", "deactivation_reason", "trace_id", "lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id", "gateway_id", "action_attempt_id", "operational_action_record_id"]],
+    ReminderQueue: [["trace_id", "client_id", "lead_id", "token", "lead_data_spreadsheet_id", "assigned_agent_id", "active_monitoring", "next_action_due_ts_utc", "next_action_type", "last_processed_ts_utc", "notes", "dispatch_claimed_ts_utc", "lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id"]],
+    LeadLifecycleLog: [["event_id", "event_ts_utc", "client_id", "lead_id", "trace_id", "event_type", "event_stage", "event_source", "assigned_agent_id", "gateway_context", "selected_action", "notes"]]
+  };
+  const appends = [];
+  const updates = [];
+  const columnIndex = letters => [...letters].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0) - 1;
+  const sheets = { spreadsheets: { values: {
+    async get({ range }) {
+      const name = range.split("!")[0];
+      if (!tables[name]) throw new Error(`Unexpected coordinated release read: ${range}`);
+      if (/![A-Z]+2$/.test(range)) {
+        const letters = range.match(/!([A-Z]+)2$/)[1];
+        return { data: { values: [[tables[name][1][columnIndex(letters)] || ""]] } };
+      }
+      return { data: { values: tables[name] } };
+    },
+    async update(args) {
+      updates.push(args);
+      const name = args.range.split("!")[0];
+      const whole = args.range.match(/!A2:[A-Z]+2$/);
+      if (whole) tables[name][1] = [...args.requestBody.values[0]];
+      else {
+        const cell = args.range.match(/!([A-Z]+)2$/);
+        if (!cell) throw new Error(`Unexpected coordinated release update: ${args.range}`);
+        tables[name][1][columnIndex(cell[1])] = args.requestBody.values[0][0];
+      }
+      return { data: {} };
+    },
+    async append(args) {
+      appends.push(args);
+      const name = args.range.split("!")[0];
+      tables[name].push([...args.requestBody.values[0]]);
+      return { data: { updates: { updatedRange: `${name}!A${tables[name].length}:Z${tables[name].length}` } } };
+    }
+  } } };
+  const store = memoryStore();
+  let crashed = false;
+  release._test.setRuntime({
+    sheets,
+    routingCoordinationConfig: { ...config, environment: "TEST" },
+    routingCoordinationObligationStore: store,
+    routingCoordinationClient: verifiedClient(async request => signedResponse(request)),
+    afterRoutingConsequenceCreate: async step => {
+      if (!crashed && step === "ACTION_LINK") {
+        crashed = true;
+        throw new Error("simulated release handler crash");
+      }
+    }
+  });
+  const event = { httpMethod: "POST", headers: { "x-ep-release-secret": "release-secret" }, body: JSON.stringify({ release_id: "REL-2" }) };
+  try {
+    const first = await release.handler(event, {});
+    assert.equal(first.statusCode, 500, first.body);
+    const second = await release.handler(event, {});
+    assert.equal(second.statusCode, 200, second.body);
+    for (const table of ["ActionLinkMap", "ReminderQueue", "LeadLifecycleLog"]) {
+      assert.equal(appends.filter(call => call.range.startsWith(`${table}!`)).length, 1, table);
+    }
+    assert.equal(updates.some(call => String(call.range).startsWith("RoutingState!")), false);
+  } finally {
+    release._test.setRuntime(null);
+    if (previousMode === undefined) delete process.env.EP_ROUTING_STATE_MODE; else process.env.EP_ROUTING_STATE_MODE = previousMode;
+    if (previousSecret === undefined) delete process.env.EP_RELEASE_SHARED_SECRET; else process.env.EP_RELEASE_SHARED_SECRET = previousSecret;
+    if (previousGoogle === undefined) delete process.env.GOOGLE_SERVICE_ACCOUNT; else process.env.GOOGLE_SERVICE_ACCOUNT = previousGoogle;
+    if (previousSms === undefined) delete process.env.ENABLE_SMS_SEND; else process.env.ENABLE_SMS_SEND = previousSms;
+  }
+});
+
 test("obligation validation rejects unsupported schema, corrupt accepted proof, and logical binding mismatch", async () => {
   const store = memoryStore();
   const request = sampleRequest();
@@ -539,7 +726,9 @@ test("obligation validation rejects unsupported schema, corrupt accepted proof, 
     record => ({ ...record, schema_version: 99 }),
     record => ({ ...record, coordinator_response: { ...record.coordinator_response, signature: "0".repeat(64) } }),
     record => ({ ...record, logical_reference: { ...record.logical_reference, source_event_id: "other-event" } }),
-    record => ({ ...record, semantic_request: { ...record.semantic_request, routing_commit_id: `rc1_${"0".repeat(64)}` } })
+    record => ({ ...record, semantic_request: { ...record.semantic_request, routing_commit_id: `rc1_${"0".repeat(64)}` } }),
+    record => ({ ...record, consequence_state: { SMS: { status: "COMPLETED", evidence: { dispatched: true }, updated_ts_utc: "2026-10-07T12:01:00.000Z" } } }),
+    record => ({ ...record, consequence_state: { LEGACY_PROJECTION: { status: "COMPLETED", evidence: { status: "SUBMITTED" }, updated_ts_utc: "2026-10-07T12:01:00.000Z" } } })
   ]) {
     assert.throws(() => validateRoutingObligation({ record: mutation(structuredClone(baseline)), key, environment: "TEST", logicalReference: request.logical_reference, verifyResponse }));
   }

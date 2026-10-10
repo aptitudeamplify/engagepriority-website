@@ -35,6 +35,7 @@ function acceptedRecord(kind = DECISION_TYPES.INITIAL_INTAKE) {
     consequence_state: {},
     continuation: {
       operation_kind: kind,
+      client_id: "C-1",
       lead_id: "L-1",
       lifecycle_identity: { lifecycle_id: "L-1", policy_snapshot_id: "ps-1" },
       assignment_identity: { lifecycle_id: "L-1", policy_snapshot_id: "ps-1", assignment_id: "as-1", assignment_sequence: 1, owner_epoch_id: "oe-1", agent_id_snapshot: "A-1" },
@@ -207,4 +208,124 @@ test("explicit CAS loss rereads the durable winner instead of overwriting it", a
     create: async () => { target = true; }
   });
   assert.equal(store.value().consequence_state.LEAD_LOG.status, STEP_STATUS.COMPLETED);
+});
+
+test("two independent create continuations have one durable owner and one create", async () => {
+  const store = storeWith(acceptedRecord());
+  let target = false;
+  let creates = 0;
+  let inspected = 0;
+  let releaseInitialInspections;
+  const initialInspections = new Promise(resolve => { releaseInitialInspections = resolve; });
+  const inspect = async () => {
+    inspected += 1;
+    if (inspected === 2) releaseInitialInspections();
+    if (inspected <= 2) await initialInspections;
+    return target ? { state: "EXACT", evidence: { lead_id: "L-1", row_number: 2 } } : { state: "ABSENT" };
+  };
+  const run = claimId => reconcileCreateStep({
+    store,
+    key: "operation",
+    validate() {},
+    step: "LEAD_LOG",
+    inspect,
+    claimId,
+    create: async () => { creates += 1; target = true; }
+  });
+  const results = await Promise.allSettled([run("claim-a"), run("claim-b")]);
+  assert.equal(creates, 1);
+  assert.equal(results.filter(result => result.status === "fulfilled").length >= 1, true);
+  assert.equal(store.value().consequence_state.LEAD_LOG.status, STEP_STATUS.COMPLETED);
+  assert.equal(store.value().consequence_state.LEAD_LOG.evidence.lead_id, "L-1");
+});
+
+for (const [kind, steps] of [
+  ["intake", ["LEAD_INDEX", "REMINDER", "ACTION_LINK", "IDEMPOTENCY"]],
+  ["release", ["ACTION_LINK", "REMINDER", "LIFECYCLE_EVENT"]]
+]) {
+  test(`simultaneous ${kind} continuation creates one consequence per step`, async () => {
+    for (const step of steps) {
+      const record = acceptedRecord(kind === "release" ? DECISION_TYPES.AFTER_HOURS_RELEASE : DECISION_TYPES.INITIAL_INTAKE);
+      if (kind === "release") record.continuation.release_id = "REL-1";
+      const store = storeWith(record);
+      let target = false;
+      let creates = 0;
+      let firstInspections = 0;
+      let release;
+      const barrier = new Promise(resolve => { release = resolve; });
+      const inspect = async () => {
+        firstInspections += 1;
+        if (firstInspections === 2) release();
+        if (firstInspections <= 2) await barrier;
+        return target ? { state: "EXACT", evidence: { target: step } } : { state: "ABSENT" };
+      };
+      const run = claimId => reconcileCreateStep({
+        store, key: "operation", validate() {}, step, inspect, claimId,
+        create: async () => { creates += 1; target = true; }
+      });
+      await Promise.allSettled([run(`${step}-a`), run(`${step}-b`)]);
+      assert.equal(creates, 1, step);
+      assert.equal(store.value().consequence_state[step].status, STEP_STATUS.COMPLETED, step);
+    }
+  });
+}
+
+test("CAS loser observes the durable winner and never creates", async () => {
+  const store = storeWith(acceptedRecord());
+  let target = false;
+  let creates = 0;
+  const first = reconcileCreateStep({
+    store, key: "operation", validate() {}, step: "LEAD_LOG", claimId: "winner",
+    inspect: async () => target ? { state: "EXACT", evidence: { lead_id: "L-1", row_number: 2 } } : { state: "ABSENT" },
+    create: async () => { creates += 1; target = true; }
+  });
+  await first;
+  await reconcileCreateStep({
+    store, key: "operation", validate() {}, step: "LEAD_LOG", claimId: "loser",
+    inspect: async () => ({ state: "EXACT", evidence: { lead_id: "L-1", row_number: 2 } }),
+    create: async () => { creates += 1; }
+  });
+  assert.equal(creates, 1);
+});
+
+test("abandoned create ownership recovers exact target but never takes over an absent target", async () => {
+  const record = acceptedRecord();
+  record.consequence_state.LEAD_LOG = {
+    status: STEP_STATUS.CREATING,
+    evidence: { claim_id: "abandoned" },
+    updated_ts_utc: "2026-10-07T12:00:00.000Z"
+  };
+  const exactStore = storeWith(record);
+  let creates = 0;
+  await reconcileCreateStep({
+    store: exactStore, key: "operation", validate() {}, step: "LEAD_LOG",
+    inspect: async () => ({ state: "EXACT", evidence: { lead_id: "L-1", row_number: 2 } }),
+    create: async () => { creates += 1; }
+  });
+  assert.equal(exactStore.value().consequence_state.LEAD_LOG.status, STEP_STATUS.COMPLETED);
+
+  const absentStore = storeWith(record);
+  await assert.rejects(() => reconcileCreateStep({
+    store: absentStore, key: "operation", validate() {}, step: "LEAD_LOG",
+    inspect: async () => ({ state: "ABSENT" }),
+    create: async () => { creates += 1; }
+  }), /ownership is unresolved/i);
+  assert.equal(creates, 0);
+  assert.equal(absentStore.value().consequence_state.LEAD_LOG.status, STEP_STATUS.CREATING);
+});
+
+test("abandoned create ownership with a conflicting target fails closed", async () => {
+  const record = acceptedRecord();
+  record.consequence_state.ACTION_LINK = {
+    status: STEP_STATUS.CREATING,
+    evidence: { claim_id: "abandoned" },
+    updated_ts_utc: "2026-10-07T12:00:00.000Z"
+  };
+  let creates = 0;
+  await assert.rejects(() => reconcileCreateStep({
+    store: storeWith(record), key: "operation", validate() {}, step: "ACTION_LINK",
+    inspect: async () => ({ state: "CONFLICT" }),
+    create: async () => { creates += 1; }
+  }), /conflicting/i);
+  assert.equal(creates, 0);
 });

@@ -1,5 +1,8 @@
+const { randomUUID } = require("crypto");
+
 const STEP_STATUS = Object.freeze({
   PENDING: "PENDING",
+  CREATING: "CREATING",
   COMPLETED: "COMPLETED",
   DISPATCHING: "DISPATCHING",
   AMBIGUOUS: "AMBIGUOUS",
@@ -55,23 +58,73 @@ async function reconcileCreateStep({
   create,
   exactEvidence = value => value?.evidence || {},
   afterCreate,
-  now
+  now,
+  claimId = randomUUID()
 }) {
-  const stored = await store.read(key);
+  let stored = await store.read(key);
   if (!stored) throw new Error("Routing coordination obligation disappeared.");
   validate(stored.record, key);
-  if (stepState(stored.record, step).status === STEP_STATUS.COMPLETED) {
-    const observed = await inspect();
-    if (observed.state !== "EXACT") throw new Error(`Completed continuation target no longer matches: ${step}`);
-    return observed;
-  }
   let observed = await inspect();
   if (observed.state === "CONFLICT") throw new Error(`Conflicting continuation target: ${step}`);
-  if (observed.state === "ABSENT") {
-    await create();
-    if (afterCreate) await afterCreate(step);
-    observed = await inspect();
+  if (observed.state === "EXACT") {
+    await setStepState({ store, key, validate, step, status: STEP_STATUS.COMPLETED, evidence: exactEvidence(observed), now });
+    return observed;
   }
+
+  const current = stepState(stored.record, step);
+  if (current.status === STEP_STATUS.COMPLETED) {
+    throw new Error(`Completed continuation target no longer matches: ${step}`);
+  }
+  if (current.status === STEP_STATUS.CREATING) {
+    throw new Error(`Routing continuation create ownership is unresolved: ${step}`);
+  }
+  if (current.status !== STEP_STATUS.PENDING) {
+    throw new Error(`Routing continuation create step is not eligible: ${step}`);
+  }
+
+  const claim = await casMutate({
+    store,
+    key,
+    validate,
+    mutate(record) {
+      const winner = stepState(record, step);
+      if (winner.status !== STEP_STATUS.PENDING) return null;
+      record.consequence_state = record.consequence_state || {};
+      const timestamp = (now || (() => new Date().toISOString()))();
+      record.consequence_state[step] = {
+        status: STEP_STATUS.CREATING,
+        evidence: { claim_id: claimId },
+        updated_ts_utc: timestamp
+      };
+      record.updated_ts_utc = timestamp;
+      return record;
+    }
+  });
+  const winner = stepState(claim.record, step);
+  if (!claim.changed || winner.status !== STEP_STATUS.CREATING || winner.evidence?.claim_id !== claimId) {
+    observed = await inspect();
+    if (observed.state === "EXACT") {
+      await setStepState({ store, key, validate, step, status: STEP_STATUS.COMPLETED, evidence: exactEvidence(observed), now });
+      return observed;
+    }
+    if (observed.state === "CONFLICT") throw new Error(`Conflicting continuation target: ${step}`);
+    throw new Error(`Routing continuation create ownership is unresolved: ${step}`);
+  }
+
+  // Re-read immediately before the non-idempotent create. A caller may create
+  // only while its exact durable claim remains authoritative.
+  stored = await store.read(key);
+  if (!stored) throw new Error("Routing coordination obligation disappeared.");
+  validate(stored.record, key);
+  const durableClaim = stepState(stored.record, step);
+  if (durableClaim.status !== STEP_STATUS.CREATING || durableClaim.evidence?.claim_id !== claimId) {
+    throw new Error(`Routing continuation create ownership was lost: ${step}`);
+  }
+
+  await create();
+  if (afterCreate) await afterCreate(step);
+  observed = await inspect();
+  if (observed.state === "CONFLICT") throw new Error(`Conflicting continuation target: ${step}`);
   if (observed.state !== "EXACT") throw new Error(`Continuation target was not durably established: ${step}`);
   await setStepState({ store, key, validate, step, status: STEP_STATUS.COMPLETED, evidence: exactEvidence(observed), now });
   return observed;

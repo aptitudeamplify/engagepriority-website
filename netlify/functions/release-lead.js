@@ -257,29 +257,15 @@ exports.handler = async (event, context) => {
       verifyResponse: coordinatedClient.verify
     });
   }
-  const coordinatedRecoveryStatus = Boolean(existingCoordinationEvidence) &&
-    new Set(["PROCESSING", "RELEASE_FAILED", "RELEASED"]).has(status);
-
-  if ((releasedTsUtc || status === "RELEASED") && !coordinatedRecoveryStatus) {
+  const coordinationPhase = existingCoordinationEvidence?.record?.phase || "NONE";
+  const admission = classifyReleaseAdmission({ coordinationPhase, queueStatus: status, releasedTsUtc });
+  if (!admission.allowed) {
     return {
       statusCode: 409,
       body: JSON.stringify({
-        error: "ReleaseQueue row already released"
-      })
-    };
-  }
-
-  if (
-    status !== "PENDING" &&
-    status !== "ACTIVE" &&
-    !(routingStateMode === "GAS_COORDINATED" && status === "PROCESSING") &&
-    !coordinatedRecoveryStatus
-  ) {
-    return {
-      statusCode: 409,
-      body: JSON.stringify({
-        error: "ReleaseQueue row is not eligible for release",
-        status
+        error: admission.error,
+        status,
+        coordination_phase: coordinationPhase
       })
     };
   }
@@ -455,7 +441,22 @@ exports.handler = async (event, context) => {
       }
     : null;
 
-  if (leadStatus !== "PENDING_RELEASE" && !(existingCoordinationEvidence && leadStatus === "NEW")) {
+  if (existingCoordinationEvidence) {
+    assertReleaseContinuationBinding({
+      continuation: existingCoordinationEvidence.record.continuation,
+      clientId,
+      leadId,
+      releaseId: release_id,
+      releaseHeaders,
+      releaseRow: matchedRow,
+      leadLogHeaders,
+      leadLogRow,
+      phase: coordinationPhase
+    });
+  }
+
+  const leadAdmission = classifyReleaseLeadAdmission({ coordinationPhase, leadStatus });
+  if (!leadAdmission.allowed) {
     return {
       statusCode: 409,
       body: JSON.stringify({
@@ -463,6 +464,16 @@ exports.handler = async (event, context) => {
         lead_status: leadStatus
       })
     };
+  }
+
+  if (coordinationPhase === "PENDING") {
+    await assertNoPendingReleaseConsequences({
+      sheets,
+      continuation: existingCoordinationEvidence.record.continuation,
+      clientId,
+      leadId,
+      leadDataSpreadsheetId
+    });
   }
 
   console.log("release_held_lead_found", {
@@ -483,7 +494,7 @@ exports.handler = async (event, context) => {
   const resumableCoordinatedClaim =
     routingStateMode === "GAS_COORDINATED" &&
     (claimResult.status === "RELEASE_ALREADY_CLAIMED" ||
-      (Boolean(existingCoordinationEvidence) && new Set(["RELEASE_ALREADY_PROCESSED", "RELEASE_NOT_ELIGIBLE"]).has(claimResult.status)));
+      (coordinationPhase === "ACCEPTED" && new Set(["RELEASE_ALREADY_PROCESSED", "RELEASE_NOT_ELIGIBLE"]).has(claimResult.status)));
 
   if (resumableCoordinatedClaim && !existingCoordinationEvidence) {
     const recoveryLeadLog = await sheets.spreadsheets.values.get({
@@ -649,6 +660,7 @@ exports.handler = async (event, context) => {
         request,
         continuation: {
           operation_kind: DECISION_TYPES.AFTER_HOURS_RELEASE,
+          client_id: clientId,
           release_id,
           lead_id: leadId,
           lifecycle_identity: heldLifecycleIdentity?.lifecycle_id ? heldLifecycleIdentity : null,
@@ -889,6 +901,7 @@ exports.handler = async (event, context) => {
       range: "LeadLifecycleLog!A1:L10000",
       match: value => value.event_id === (releaseContinuationContext?.continuation?.plan?.lifecycle_event_id || ""),
       exact: value => value.client_id === clientId && value.lead_id === leadId && value.event_type === "LEAD_RELEASED",
+      evidence: value => ({ event_id: value.event_id, lead_id: value.lead_id, row_number: value._row_number }),
       create: () => appendLeadLifecycleEvent({
       sheets,
       spreadsheetId: leadDataSpreadsheetId,
@@ -1024,6 +1037,107 @@ function routeByStrategy({ routing_strategy, agents, routing_pointer }) {
   }
 
   throw new Error(`Unsupported routing_strategy: ${normalizedStrategy}`);
+}
+
+function classifyReleaseAdmission({ coordinationPhase, queueStatus, releasedTsUtc }) {
+  const phase = String(coordinationPhase || "NONE").toUpperCase();
+  const status = String(queueStatus || "").toUpperCase();
+  if (phase === "PENDING") {
+    return status === "PROCESSING" && !releasedTsUtc
+      ? { allowed: true, kind: "PRE_ACCEPT_RETRY" }
+      : { allowed: false, error: "Pending routing obligation is incompatible with ReleaseQueue state" };
+  }
+  if (phase === "ACCEPTED") {
+    return new Set(["PROCESSING", "RELEASE_FAILED", "RELEASED"]).has(status)
+      ? { allowed: true, kind: "POST_ACCEPT_RECOVERY" }
+      : { allowed: false, error: "Accepted routing obligation is incompatible with ReleaseQueue state" };
+  }
+  if (phase !== "NONE") return { allowed: false, error: "Unsupported routing obligation phase" };
+  if (releasedTsUtc || status === "RELEASED" || status === "RELEASE_FAILED") {
+    return { allowed: false, error: "ReleaseQueue row already passed initial admission without accepted coordination evidence" };
+  }
+  return new Set(["PENDING", "ACTIVE", "PROCESSING"]).has(status)
+    ? { allowed: true, kind: status === "PROCESSING" ? "CLAIM_RECONSTRUCTION" : "FRESH" }
+    : { allowed: false, error: "ReleaseQueue row is not eligible for release" };
+}
+
+function classifyReleaseLeadAdmission({ coordinationPhase, leadStatus }) {
+  const phase = String(coordinationPhase || "NONE").toUpperCase();
+  const status = String(leadStatus || "").toUpperCase();
+  if (status === "PENDING_RELEASE") return { allowed: true };
+  if (phase === "ACCEPTED" && status === "NEW") return { allowed: true };
+  return { allowed: false, error: "Lead is not pending release for the obligation phase" };
+}
+
+function rowValue(headers, row, field) {
+  const index = headers.indexOf(field);
+  return index === -1 ? "" : String(row[index] || "").trim();
+}
+
+function assertReleaseContinuationBinding({
+  continuation,
+  clientId,
+  leadId,
+  releaseId,
+  releaseHeaders,
+  releaseRow,
+  leadLogHeaders,
+  leadLogRow,
+  phase
+}) {
+  if (continuation.client_id !== clientId || continuation.lead_id !== leadId || continuation.release_id !== releaseId) {
+    throw new Error("Routing obligation continuation does not match the authoritative release identity.");
+  }
+  for (const [headers, row, field, expected] of [
+    [releaseHeaders, releaseRow, "client_id", clientId],
+    [releaseHeaders, releaseRow, "lead_id", leadId],
+    [releaseHeaders, releaseRow, "release_id", releaseId],
+    [leadLogHeaders, leadLogRow, "client_id", clientId],
+    [leadLogHeaders, leadLogRow, "lead_id", leadId]
+  ]) {
+    if (rowValue(headers, row, field) !== expected) throw new Error(`Authoritative release binding mismatch: ${field}`);
+  }
+  if (continuation.lifecycle_identity) {
+    for (const field of ["lifecycle_id", "policy_snapshot_id"]) {
+      const expected = continuation.lifecycle_identity[field];
+      const leadValue = rowValue(leadLogHeaders, leadLogRow, field);
+      const queueValue = rowValue(releaseHeaders, releaseRow, field);
+      if (leadValue && leadValue !== expected) throw new Error(`Authoritative LeadLog identity mismatch: ${field}`);
+      if (queueValue && queueValue !== expected) throw new Error(`Authoritative ReleaseQueue identity mismatch: ${field}`);
+    }
+  }
+  if (phase === "ACCEPTED" && continuation.assignment_identity &&
+      rowValue(leadLogHeaders, leadLogRow, "lead_status").toUpperCase() === "NEW") {
+    for (const field of ["lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id"]) {
+      if (rowValue(leadLogHeaders, leadLogRow, field) !== String(continuation.assignment_identity[field])) {
+        throw new Error(`Authoritative LeadLog assignment mismatch: ${field}`);
+      }
+    }
+  }
+}
+
+async function assertNoPendingReleaseConsequences({ sheets, continuation, clientId, leadId, leadDataSpreadsheetId }) {
+  const [actionResponse, reminderResponse, lifecycleResponse] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId: ACTION_LINK_MAP_SHEET_ID, range: "ActionLinkMap!A1:Y10000" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "ReminderQueue!A1:Z10000" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: leadDataSpreadsheetId, range: "LeadLifecycleLog!A1:L10000" })
+  ]);
+  const assignmentId = continuation.assignment_identity?.assignment_id || "";
+  const gatewayId = continuation.plan?.gateway_id || "";
+  const actions = rowsToObjects(actionResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId &&
+    ((gatewayId && value.gateway_id === gatewayId) || (assignmentId && value.assignment_id === assignmentId))
+  );
+  const reminders = rowsToObjects(reminderResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId && assignmentId && value.assignment_id === assignmentId
+  );
+  const lifecycleEvents = rowsToObjects(lifecycleResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId &&
+    value.event_id === continuation.plan?.lifecycle_event_id
+  );
+  if (actions.length || reminders.length || lifecycleEvents.length) {
+    throw new Error("Pending routing obligation has post-assignment consequences and cannot be admitted.");
+  }
 }
 
 function routeWeightedInterleaved({ agents, routing_pointer }) {
@@ -1555,6 +1669,11 @@ async function createReleaseInitialActionLink({
       : value.lead_id === lead_id && value.trace_id === trace_id && value.gateway_context === gateway_context,
     exact: value => value.client_id === client.client_id && value.assigned_agent_id === assigned_agent_id &&
       (!gatewayIdentity || value.gateway_id === gatewayIdentity.gateway_id),
+    evidence: value => ({
+      gateway_id: value.gateway_id || "",
+      lead_id: value.lead_id,
+      row_number: value._row_number
+    }),
     create: append
   });
   if (observed?.row) {
@@ -1619,6 +1738,11 @@ async function createReleaseReminderQueueRow({
     exact: value => value.client_id === client.client_id && value.assigned_agent_id === assigned_agent_id &&
       value.next_action_due_ts_utc === nextActionDue && value.active_monitoring === "TRUE" && value.trace_id === trace_id &&
       (!assignment_identity || value.lifecycle_id === assignment_identity.lifecycle_id),
+    evidence: value => ({
+      assignment_id: value.assignment_id || "",
+      lead_id: value.lead_id,
+      row_number: value._row_number
+    }),
     create: () => sheets.spreadsheets.values.append({
       spreadsheetId: SHEET_ID,
       range: "ReminderQueue!A1",
@@ -1647,14 +1771,21 @@ function createReleaseObligationValidator(context) {
   });
 }
 
-async function reconcileReleaseCreate({ context, step, sheets, spreadsheetId, range, match, exact, create }) {
+async function reconcileReleaseCreate({ context, step, sheets, spreadsheetId, range, match, exact, evidence, create }) {
   if (!context) {
     await create();
     return { state: "EXACT" };
   }
   const inspect = async () => {
     const values = (await sheets.spreadsheets.values.get({ spreadsheetId, range })).data.values || [];
-    return inspectUniqueRows(rowsToObjects(values), { match, exact });
+    const objects = rowsToObjects(values);
+    return inspectUniqueRows(objects, {
+      match,
+      exact,
+      evidence: value => evidence
+        ? evidence({ ...value, _row_number: objects.indexOf(value) + 2 })
+        : { row_number: objects.indexOf(value) + 2 }
+    });
   };
   return reconcileCreateStep({
     store: context.obligationStore,
@@ -1923,6 +2054,10 @@ async function markReleaseQueueFailed({
 }
 
 exports._test = {
+  assertNoPendingReleaseConsequences,
+  assertReleaseContinuationBinding,
+  classifyReleaseAdmission,
+  classifyReleaseLeadAdmission,
   createReleaseInitialActionLink,
   createReleaseReminderQueueRow,
   getCoordinatedReleaseRoutingState,
