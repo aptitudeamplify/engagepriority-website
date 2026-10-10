@@ -152,6 +152,7 @@
     </section>
   </main>
 
+  <script src="/assets/initial-intake-delivery.js"></script>
   <script>
     const form = document.getElementById("leadForm");
     const submitButton = document.getElementById("submitButton");
@@ -176,7 +177,7 @@
       const timeline = String(formData.get("timeline") || "").trim();
       const notes = String(formData.get("notes") || "").trim();
 
-      const payload = {
+      let payload = {
         source_system: "WEBSITE",
         source_detail: "ENGAGEPRIORITY_TEST_FORM",
         intake_client_reference: "ENGAGEPRIORITY_TEST_FORM",
@@ -199,6 +200,7 @@
       };
 
       try {
+        payload = await EPInitialIntakeDelivery.prepareSubmission(payload);
         const response = await fetch("/.netlify/functions/intake-lead", {
           method: "POST",
           headers: {
@@ -214,6 +216,8 @@
         } catch (parseError) {
           result = {};
         }
+
+        EPInitialIntakeDelivery.recordResult(response.status);
 
         if (!response.ok) {
           throw new Error("Submission failed");

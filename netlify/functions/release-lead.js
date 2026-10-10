@@ -6,11 +6,30 @@ const {
   createGatewayIdentity,
   identityValues
 } = require("./_shared/lifecycle-identity");
+const {
+  CONTRACTS,
+  DECISION_TYPES,
+  buildSemanticRequest,
+  routingStateFingerprint
+} = require("./_shared/routing-coordination-contract");
+const { createRoutingCoordinationClient, loadRoutingCoordinationConfig } = require("./_shared/routing-coordination-client");
+const { createRoutingCoordinationObligationStore } = require("./_shared/routing-coordination-obligation-store");
+const {
+  coordinateRoutingCommit,
+  isCompletedConsequence,
+  isSmsDownstreamAuthorized,
+  routingCoordinationMode,
+  routingOperationKey,
+  validateRoutingObligation
+} = require("./_shared/routing-coordination");
+const { inspectUniqueRows, reconcileCreateStep, reconcileMutationStep, runAtMostOnceDispatch } = require("./_shared/routing-continuation");
 
 const SHEET_ID = "18x83a1VZIZoXrjASqTNfKdzYi1gDKLQD4fgx5WbyoWQ";
 const ACTION_LINK_MAP_SHEET_ID = "1xNhypMirxoz9IjMWxO0H8gxNSqqavs2W17pzx8HiZfw";
+let releaseTestRuntime = null;
 
 exports.handler = async (event, context) => {
+  const routingStateMode = routingCoordinationMode();
 
   if (event.httpMethod !== "POST") {
     return {
@@ -67,7 +86,7 @@ exports.handler = async (event, context) => {
     release_id
   });
 
-  const nowUtc =
+  let nowUtc =
     new Date().toISOString();
 
   const credentials = JSON.parse(
@@ -81,7 +100,7 @@ exports.handler = async (event, context) => {
     ]
   });
 
-  const sheets = google.sheets({
+  const sheets = releaseTestRuntime?.sheets || google.sheets({
     version: "v4",
     auth
   });
@@ -218,24 +237,42 @@ exports.handler = async (event, context) => {
     };
   }
 
-  if (releasedTsUtc || status === "RELEASED") {
-    return {
-      statusCode: 409,
-      body: JSON.stringify({
-        error: "ReleaseQueue row already released"
-      })
-    };
+  const coordinatedLogicalReference = routingStateMode === "GAS_COORDINATED"
+    ? { logical_reference_contract: CONTRACTS.afterHoursRelease, client_id: clientId, release_id }
+    : null;
+  const coordinatedConfig = routingStateMode === "GAS_COORDINATED"
+    ? (releaseTestRuntime?.routingCoordinationConfig || loadRoutingCoordinationConfig())
+    : null;
+  const coordinatedObligationStore = routingStateMode === "GAS_COORDINATED"
+    ? (releaseTestRuntime?.routingCoordinationObligationStore || createRoutingCoordinationObligationStore())
+    : null;
+  const coordinatedClient = routingStateMode === "GAS_COORDINATED"
+    ? (releaseTestRuntime?.routingCoordinationClient || createRoutingCoordinationClient({ config: coordinatedConfig }))
+    : null;
+  const coordinatedOperationKey = routingStateMode === "GAS_COORDINATED"
+    ? routingOperationKey(coordinatedConfig.environment, coordinatedLogicalReference)
+    : null;
+  const existingCoordinationEvidence = coordinatedObligationStore
+    ? await coordinatedObligationStore.read(coordinatedOperationKey)
+    : null;
+  if (existingCoordinationEvidence) {
+    validateRoutingObligation({
+      record: existingCoordinationEvidence.record,
+      key: coordinatedOperationKey,
+      environment: coordinatedConfig.environment,
+      logicalReference: coordinatedLogicalReference,
+      verifyResponse: coordinatedClient.verify
+    });
   }
-
-  if (
-    status !== "PENDING" &&
-    status !== "ACTIVE"
-  ) {
+  const coordinationPhase = existingCoordinationEvidence?.record?.phase || "NONE";
+  const admission = classifyReleaseAdmission({ coordinationPhase, queueStatus: status, releasedTsUtc });
+  if (!admission.allowed) {
     return {
       statusCode: 409,
       body: JSON.stringify({
-        error: "ReleaseQueue row is not eligible for release",
-        status
+        error: admission.error,
+        status,
+        coordination_phase: coordinationPhase
       })
     };
   }
@@ -399,7 +436,7 @@ exports.handler = async (event, context) => {
   const leadStatus =
     String(leadLogRow[leadStatusIndex] || "").trim().toUpperCase();
 
-  const traceId =
+  let traceId =
     String(leadLogRow[traceIdIndex] || "").trim();
 
   const lifecycleIdIndex = leadLogHeaders.indexOf("lifecycle_id");
@@ -411,7 +448,22 @@ exports.handler = async (event, context) => {
       }
     : null;
 
-  if (leadStatus !== "PENDING_RELEASE") {
+  if (existingCoordinationEvidence) {
+    assertReleaseContinuationBinding({
+      continuation: existingCoordinationEvidence.record.continuation,
+      clientId,
+      leadId,
+      releaseId: release_id,
+      releaseHeaders,
+      releaseRow: matchedRow,
+      leadLogHeaders,
+      leadLogRow,
+      phase: coordinationPhase
+    });
+  }
+
+  const leadAdmission = classifyReleaseLeadAdmission({ coordinationPhase, leadStatus });
+  if (!leadAdmission.allowed) {
     return {
       statusCode: 409,
       body: JSON.stringify({
@@ -419,6 +471,16 @@ exports.handler = async (event, context) => {
         lead_status: leadStatus
       })
     };
+  }
+
+  if (coordinationPhase === "PENDING") {
+    await assertNoPendingReleaseConsequences({
+      sheets,
+      continuation: existingCoordinationEvidence.record.continuation,
+      clientId,
+      leadId,
+      leadDataSpreadsheetId
+    });
   }
 
   console.log("release_held_lead_found", {
@@ -436,7 +498,33 @@ exports.handler = async (event, context) => {
       nowUtc
     });
 
-  if (!claimResult.claimed) {
+  const resumableCoordinatedClaim =
+    routingStateMode === "GAS_COORDINATED" &&
+    (claimResult.status === "RELEASE_ALREADY_CLAIMED" ||
+      (coordinationPhase === "ACCEPTED" && new Set(["RELEASE_ALREADY_PROCESSED", "RELEASE_NOT_ELIGIBLE"]).has(claimResult.status)));
+
+  if (resumableCoordinatedClaim && !existingCoordinationEvidence) {
+    const recoveryLeadLog = await sheets.spreadsheets.values.get({
+      spreadsheetId: leadDataSpreadsheetId,
+      range: "LeadLog_Active!A1:BO10000"
+    });
+    const recoveryRows = recoveryLeadLog.data.values || [];
+    const recoveryHeaders = recoveryRows[0] || [];
+    const recoveryLeadIdIndex = recoveryHeaders.indexOf("lead_id");
+    const recoveryClientIdIndex = recoveryHeaders.indexOf("client_id");
+    const recoveryMatches = recoveryRows.slice(1).map((row, index) => ({ row, rowNumber: index + 2 })).filter(({ row }) =>
+      String(row[recoveryLeadIdIndex] || "").trim() === leadId &&
+      String(row[recoveryClientIdIndex] || "").trim() === clientId
+    );
+    if (recoveryMatches.length !== 1 ||
+        String(recoveryMatches[0].row[recoveryHeaders.indexOf("lead_status")] || "").trim().toUpperCase() !== "PENDING_RELEASE") {
+      throw new Error("Claimed release recovery no longer matches the authoritative held lead.");
+    }
+    leadLogRow = recoveryMatches[0].row;
+    leadLogRowNumber = recoveryMatches[0].rowNumber;
+  }
+
+  if (!claimResult.claimed && !resumableCoordinatedClaim) {
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -502,7 +590,7 @@ exports.handler = async (event, context) => {
       );
     });
 
-  if (eligibleAgents.length === 0) {
+  if (eligibleAgents.length === 0 && !existingCoordinationEvidence) {
     return {
       statusCode: 409,
       body: JSON.stringify({
@@ -511,24 +599,10 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const routingState =
-    routingStates.find(row => {
-      return String(row.client_id || "").trim() === clientId;
-    });
-
-  if (!routingState) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "RoutingState missing for client"
-      })
-    };
-  }
-
   const routingStrategy =
     String(clientRow[clientHeaders.indexOf("routing_strategy")] || "").trim();
 
-  if (!routingStrategy) {
+  if (!routingStrategy && !existingCoordinationEvidence) {
     return {
       statusCode: 409,
       body: JSON.stringify({
@@ -537,39 +611,127 @@ exports.handler = async (event, context) => {
     };
   }
 
-  const routingPointer =
-    parseInt(routingState.routing_pointer || "0", 10);
+  let routingState;
+  let assignmentResult;
+  let assignmentIdentity = null;
+  let releaseContinuationContext = null;
 
-  if (!Number.isFinite(routingPointer) || routingPointer < 0) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "Invalid routing_pointer"
-      })
+  if (routingStateMode === "GAS_COORDINATED") {
+    const logicalReference = coordinatedLogicalReference;
+    const config = coordinatedConfig;
+    const coordinationClient = coordinatedClient;
+    const obligationStore = coordinatedObligationStore;
+    const buildAttempt = async ({ reason }) => {
+      let attemptRoutingValues = routingValues;
+      let attemptAgents = agents;
+      if (reason === "STALE") {
+        const [freshAgents, freshRouting] = await Promise.all([
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "Agents!A1:Z10000" }),
+          sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "RoutingState!A1:Z10000" })
+        ]);
+        attemptAgents = rowsToObjects(freshAgents.data.values || []);
+        attemptRoutingValues = freshRouting.data.values || [];
+      }
+      const currentState = getCoordinatedReleaseRoutingState({ values: attemptRoutingValues, clientId });
+      const currentAgents = attemptAgents.filter(agent =>
+        String(agent.client_id || "").trim() === clientId &&
+        String(agent.agent_status || "").trim().toUpperCase() === "ACTIVE"
+      );
+      const result = routeByStrategy({ routing_strategy: routingStrategy, agents: currentAgents, routing_pointer: currentState.routing_pointer });
+      const candidateIdentity = heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
+        ? createAssignmentIdentity({ lifecycleIdentity: heldLifecycleIdentity, assignedAgentId: result.assigned_agent_id })
+        : null;
+      const createdTsUtc = new Date().toISOString();
+      const gatewayIdentity = candidateIdentity ? createGatewayIdentity(candidateIdentity) : null;
+      const reminderDelay = parseInt(client.reminder_1_delay_minutes, 10);
+      if (!Number.isFinite(reminderDelay) || reminderDelay <= 0) throw new Error("Invalid coordinated reminder delay.");
+      const request = buildSemanticRequest({
+        environment: config.environment,
+        decision_type: DECISION_TYPES.AFTER_HOURS_RELEASE,
+        client_id: clientId,
+        logical_reference: logicalReference,
+        expected_state: {
+          routing_state_version: currentState.routing_state_version,
+          routing_pointer: currentState.routing_pointer,
+          routing_state_fingerprint: routingStateFingerprint(currentState).fingerprint
+        },
+        proposal: {
+          selected_agent_id: result.assigned_agent_id,
+          routing_pointer_after: result.routing_pointer_after,
+          total_assignments_today_after: currentState.total_assignments_today + 1,
+          notes_after: currentState.notes
+        },
+        semantic_evidence: {}
+      });
+      return {
+        request,
+        continuation: {
+          operation_kind: DECISION_TYPES.AFTER_HOURS_RELEASE,
+          client_id: clientId,
+          release_id,
+          lead_id: leadId,
+          lifecycle_identity: heldLifecycleIdentity?.lifecycle_id ? heldLifecycleIdentity : null,
+          assignment_result: result,
+          assignment_identity: candidateIdentity,
+          plan: {
+            trace_id: traceId || release_id,
+            created_ts_utc: createdTsUtc,
+            reminder_due_ts_utc: new Date(new Date(createdTsUtc).getTime() + reminderDelay * 60000).toISOString(),
+            lifecycle_event_id: randomUUID(),
+            ...(gatewayIdentity ? { gateway_id: gatewayIdentity.gateway_id } : {})
+          }
+        }
+      };
     };
+    const coordinated = await coordinateRoutingCommit({ logicalReference, environment: config.environment, buildAttempt, obligationStore, client: coordinationClient });
+    assignmentResult = coordinated.continuation.assignment_result;
+    assignmentIdentity = coordinated.continuation.assignment_identity;
+    routingState = coordinated.response.result_payload;
+    traceId = coordinated.continuation.plan.trace_id;
+    releaseContinuationContext = {
+      config,
+      logicalReference,
+      obligationStore,
+      operationKey: coordinatedOperationKey,
+      coordinationClient,
+      continuation: coordinated.continuation,
+      obligation: coordinated.obligation
+    };
+    nowUtc = coordinated.continuation.plan.created_ts_utc;
+  } else {
+    routingState = routingStates.find(row => String(row.client_id || "").trim() === clientId);
+    if (!routingState) return { statusCode: 500, body: JSON.stringify({ error: "RoutingState missing for client" }) };
+    const routingPointer = parseInt(routingState.routing_pointer || "0", 10);
+    if (!Number.isFinite(routingPointer) || routingPointer < 0) return { statusCode: 500, body: JSON.stringify({ error: "Invalid routing_pointer" }) };
+    assignmentResult = routeByStrategy({ routing_strategy: routingStrategy, agents: eligibleAgents, routing_pointer: routingPointer });
+    assignmentIdentity = heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
+      ? createAssignmentIdentity({ lifecycleIdentity: heldLifecycleIdentity, assignedAgentId: assignmentResult.assigned_agent_id })
+      : null;
   }
 
-  const assignmentResult =
-    routeByStrategy({
-      routing_strategy: routingStrategy,
-      agents: eligibleAgents,
-      routing_pointer: routingPointer
+  let assignedAgentPool = agents;
+  if (routingStateMode === "GAS_COORDINATED") {
+    const assignedAgentRefresh = await sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Agents!A1:Z10000"
     });
-
+    assignedAgentPool = rowsToObjects(assignedAgentRefresh.data.values || []);
+  }
   const assignedAgent =
-    eligibleAgents.find(agent => {
+    assignedAgentPool.find(agent => {
       return String(agent.agent_id || "").trim() ===
         String(assignmentResult.assigned_agent_id || "").trim();
     });
 
-  if (!assignedAgent || !assignedAgent.agent_phone) {
+  const releaseSmsState = releaseContinuationContext?.obligation?.consequence_state?.SMS?.status || "";
+  const releaseSmsSettled = ["COMPLETED", "AMBIGUOUS", "MANUAL_RECONCILIATION"].includes(releaseSmsState);
+  if ((!assignedAgent || !assignedAgent.agent_phone) && !releaseSmsSettled) {
     throw new Error(`Assigned agent phone not found for agent_id: ${assignmentResult.assigned_agent_id}`);
   }
 
   let downstreamStage =
     "IDENTITY_CREATE";
 
-  let assignmentIdentity = null;
   let actionLinks;
   let reminderQueue;
   let smsPayload;
@@ -580,17 +742,10 @@ exports.handler = async (event, context) => {
     downstreamStage =
       "IDENTITY_CREATE";
 
-    assignmentIdentity =
-      heldLifecycleIdentity?.lifecycle_id && heldLifecycleIdentity?.policy_snapshot_id
-        ? createAssignmentIdentity({
-            lifecycleIdentity: heldLifecycleIdentity,
-            assignedAgentId: assignmentResult.assigned_agent_id
-          })
-        : null;
-
     downstreamStage =
       "ROUTINGSTATE_UPDATE";
 
+    if (routingStateMode === "LEGACY_DIRECT") {
       await updateRoutingStateAfterReleaseAssignment({
         sheets,
         spreadsheetId: SHEET_ID,
@@ -599,12 +754,29 @@ exports.handler = async (event, context) => {
         routingPointerAfter: assignmentResult.routing_pointer_after,
         assignedAgentId: assignmentResult.assigned_agent_id,
         nowUtc
-    });
+      });
+    }
 
     downstreamStage =
       "LEADLOG_UPDATE";
 
-      await updateLeadLogAfterReleaseAssignment({
+    await reconcileReleaseMutation({
+      context: releaseContinuationContext,
+      step: "LEAD_LOG",
+      inspect: async () => {
+        const values = (await sheets.spreadsheets.values.get({ spreadsheetId: leadDataSpreadsheetId, range: "LeadLog_Active!A1:BO10000" })).data.values || [];
+        const rows = rowsToObjects(values).filter(value => value.lead_id === leadId && value.client_id === clientId);
+        if (rows.length !== 1) return { state: "CONFLICT" };
+        const value = rows[0];
+        const exact = String(value.lead_status || "").toUpperCase() === "NEW" &&
+          value.assigned_agent_id === assignmentResult.assigned_agent_id &&
+          (!assignmentIdentity || value.assignment_id === assignmentIdentity.assignment_id);
+        if (exact) return { state: "EXACT", evidence: { lead_id: leadId } };
+        return String(value.lead_status || "").toUpperCase() === "PENDING_RELEASE"
+          ? { state: "NEEDS_APPLY" }
+          : { state: "CONFLICT" };
+      },
+      apply: () => updateLeadLogAfterReleaseAssignment({
         sheets,
         spreadsheetId: leadDataSpreadsheetId,
         leadLogHeaders,
@@ -613,6 +785,7 @@ exports.handler = async (event, context) => {
         assignedAgentId: assignmentResult.assigned_agent_id,
         assignmentIdentity,
         nowUtc
+      })
     });
 
     downstreamStage =
@@ -626,7 +799,9 @@ exports.handler = async (event, context) => {
         assigned_agent_id: assignmentResult.assigned_agent_id,
         trace_id: traceId,
         nowUtc,
-        assignment_identity: assignmentIdentity
+        assignment_identity: assignmentIdentity,
+        planned_gateway: releaseContinuationContext?.continuation?.plan,
+        continuation_context: releaseContinuationContext
         });
 
     downstreamStage =
@@ -640,14 +815,15 @@ exports.handler = async (event, context) => {
         assigned_agent_id: assignmentResult.assigned_agent_id,
         trace_id: traceId,
         nowUtc,
-        assignment_identity: assignmentIdentity
+        assignment_identity: assignmentIdentity,
+        continuation_context: releaseContinuationContext
         });
 
     downstreamStage =
       "SMS_SEND";
 
     smsPayload = {
-        to: assignedAgent.agent_phone,
+        to: assignedAgent?.agent_phone || "",
         message:
         `New EngagePriority lead assigned.\n\n` +
         `${actionLinks.INITIAL_RESPONSE_GATEWAY.public_url}`
@@ -657,12 +833,35 @@ exports.handler = async (event, context) => {
         trace_id: traceId,
         lead_id: leadId,
         assigned_agent_id: assignmentResult.assigned_agent_id,
-        phone: assignedAgent.agent_phone
+        phone: assignedAgent?.agent_phone || ""
     });
 
     try {
-      smsResult =
-        await sendSmsIfEnabled(smsPayload);
+      if (releaseContinuationContext) {
+        const dispatched = await runAtMostOnceDispatch({
+          store: releaseContinuationContext.obligationStore,
+          key: releaseContinuationContext.operationKey,
+          validate: createReleaseObligationValidator(releaseContinuationContext),
+          step: "SMS",
+          dispatch: () => sendSmsIfEnabled(smsPayload),
+          retryGuard: record => isCompletedConsequence(record, "RELEASE_QUEUE"),
+          disabled: String(process.env.ENABLE_SMS_SEND || "").toLowerCase() !== "true"
+        });
+        const current = await releaseContinuationContext.obligationStore.read(releaseContinuationContext.operationKey);
+        if (!current) throw new Error("Routing coordination obligation disappeared.");
+        createReleaseObligationValidator(releaseContinuationContext)(current.record, releaseContinuationContext.operationKey);
+        if (dispatched.status === "AMBIGUOUS" && !isCompletedConsequence(current.record, "RELEASE_QUEUE")) {
+          return { statusCode: 202, body: JSON.stringify({ status: "SMS_MANUAL_RECONCILIATION_REQUIRED", release_id, lead_id: leadId }) };
+        }
+        smsResult = dispatched.result || {
+          sent: false,
+          reason: dispatched.status === "PREREQUISITE_BLOCKED"
+            ? "RELEASE_QUEUE_COMPLETION_REQUIRED"
+            : (dispatched.evidence.provider_status || dispatched.evidence.reason)
+        };
+      } else {
+        smsResult = await sendSmsIfEnabled(smsPayload);
+      }
     } catch (smsError) {
         console.error("release_sms_send_error", {
           trace_id: traceId,
@@ -681,8 +880,23 @@ exports.handler = async (event, context) => {
     downstreamStage =
       "RELEASEQUEUE_COMPLETE";
 
-    releaseCompletion =
-      await completeReleaseQueueRow({
+    await reconcileReleaseMutation({
+      context: releaseContinuationContext,
+      step: "RELEASE_QUEUE",
+      authorizeBeforeApply: isSmsDownstreamAuthorized,
+      inspect: async () => {
+        const values = (await sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "ReleaseQueue!A1:Z10000" })).data.values || [];
+        const rows = rowsToObjects(values).filter(value => value.release_id === release_id);
+        if (rows.length !== 1) return { state: "CONFLICT" };
+        const value = rows[0];
+        const exact = String(value.status || "").toUpperCase() === "RELEASED" && value.assigned_agent_id === assignmentResult.assigned_agent_id;
+        if (exact) return { state: "EXACT", evidence: { release_id } };
+        return new Set(["PROCESSING", "RELEASE_FAILED"]).has(String(value.status || "").toUpperCase())
+          ? { state: "NEEDS_APPLY" }
+          : { state: "CONFLICT" };
+      },
+      apply: async () => {
+        releaseCompletion = await completeReleaseQueueRow({
         sheets,
         spreadsheetId: SHEET_ID,
         releaseHeaders,
@@ -690,14 +904,25 @@ exports.handler = async (event, context) => {
         assignedAgentId: assignmentResult.assigned_agent_id,
         nowUtc
         });
+      }
+    });
 
     downstreamStage =
       "LIFECYCLE_RELEASE_EVENT";
 
-    await appendLeadLifecycleEvent({
+    await reconcileReleaseCreate({
+      context: releaseContinuationContext,
+      step: "LIFECYCLE_EVENT",
       sheets,
       spreadsheetId: leadDataSpreadsheetId,
-      event_id: randomUUID(),
+      range: "LeadLifecycleLog!A1:L10000",
+      match: value => value.event_id === (releaseContinuationContext?.continuation?.plan?.lifecycle_event_id || ""),
+      exact: value => value.client_id === clientId && value.lead_id === leadId && value.event_type === "LEAD_RELEASED",
+      evidence: value => ({ event_id: value.event_id, lead_id: value.lead_id, row_number: value._row_number }),
+      create: () => appendLeadLifecycleEvent({
+      sheets,
+      spreadsheetId: leadDataSpreadsheetId,
+      event_id: releaseContinuationContext?.continuation?.plan?.lifecycle_event_id || randomUUID(),
       event_ts_utc: nowUtc,
       client_id: clientId,
       lead_id: leadId,
@@ -709,6 +934,7 @@ exports.handler = async (event, context) => {
       gateway_context: "INITIAL_RESPONSE_GATEWAY",
       selected_action: "",
       notes: "Released from after-hours hold to assigned agent"
+      })
     });
 
   } catch (downstreamError) {
@@ -728,6 +954,9 @@ exports.handler = async (event, context) => {
           })
         };
       }
+    if (releaseContinuationContext) {
+      return { statusCode: 500, body: JSON.stringify({ status: "RELEASE_CONTINUATION_RECOVERABLE", release_id, lead_id: leadId, failed_stage: downstreamStage, error: downstreamError.message }) };
+    }
     const failure =
       await markReleaseQueueFailed({
         sheets,
@@ -827,6 +1056,107 @@ function routeByStrategy({ routing_strategy, agents, routing_pointer }) {
   throw new Error(`Unsupported routing_strategy: ${normalizedStrategy}`);
 }
 
+function classifyReleaseAdmission({ coordinationPhase, queueStatus, releasedTsUtc }) {
+  const phase = String(coordinationPhase || "NONE").toUpperCase();
+  const status = String(queueStatus || "").toUpperCase();
+  if (phase === "PENDING") {
+    return status === "PROCESSING" && !releasedTsUtc
+      ? { allowed: true, kind: "PRE_ACCEPT_RETRY" }
+      : { allowed: false, error: "Pending routing obligation is incompatible with ReleaseQueue state" };
+  }
+  if (phase === "ACCEPTED") {
+    return new Set(["PROCESSING", "RELEASE_FAILED", "RELEASED"]).has(status)
+      ? { allowed: true, kind: "POST_ACCEPT_RECOVERY" }
+      : { allowed: false, error: "Accepted routing obligation is incompatible with ReleaseQueue state" };
+  }
+  if (phase !== "NONE") return { allowed: false, error: "Unsupported routing obligation phase" };
+  if (releasedTsUtc || status === "RELEASED" || status === "RELEASE_FAILED") {
+    return { allowed: false, error: "ReleaseQueue row already passed initial admission without accepted coordination evidence" };
+  }
+  return new Set(["PENDING", "ACTIVE", "PROCESSING"]).has(status)
+    ? { allowed: true, kind: status === "PROCESSING" ? "CLAIM_RECONSTRUCTION" : "FRESH" }
+    : { allowed: false, error: "ReleaseQueue row is not eligible for release" };
+}
+
+function classifyReleaseLeadAdmission({ coordinationPhase, leadStatus }) {
+  const phase = String(coordinationPhase || "NONE").toUpperCase();
+  const status = String(leadStatus || "").toUpperCase();
+  if (status === "PENDING_RELEASE") return { allowed: true };
+  if (phase === "ACCEPTED" && status === "NEW") return { allowed: true };
+  return { allowed: false, error: "Lead is not pending release for the obligation phase" };
+}
+
+function rowValue(headers, row, field) {
+  const index = headers.indexOf(field);
+  return index === -1 ? "" : String(row[index] || "").trim();
+}
+
+function assertReleaseContinuationBinding({
+  continuation,
+  clientId,
+  leadId,
+  releaseId,
+  releaseHeaders,
+  releaseRow,
+  leadLogHeaders,
+  leadLogRow,
+  phase
+}) {
+  if (continuation.client_id !== clientId || continuation.lead_id !== leadId || continuation.release_id !== releaseId) {
+    throw new Error("Routing obligation continuation does not match the authoritative release identity.");
+  }
+  for (const [headers, row, field, expected] of [
+    [releaseHeaders, releaseRow, "client_id", clientId],
+    [releaseHeaders, releaseRow, "lead_id", leadId],
+    [releaseHeaders, releaseRow, "release_id", releaseId],
+    [leadLogHeaders, leadLogRow, "client_id", clientId],
+    [leadLogHeaders, leadLogRow, "lead_id", leadId]
+  ]) {
+    if (rowValue(headers, row, field) !== expected) throw new Error(`Authoritative release binding mismatch: ${field}`);
+  }
+  if (continuation.lifecycle_identity) {
+    for (const field of ["lifecycle_id", "policy_snapshot_id"]) {
+      const expected = continuation.lifecycle_identity[field];
+      const leadValue = rowValue(leadLogHeaders, leadLogRow, field);
+      const queueValue = rowValue(releaseHeaders, releaseRow, field);
+      if (leadValue !== expected) throw new Error(`Authoritative LeadLog identity mismatch: ${field}`);
+      if (queueValue && queueValue !== expected) throw new Error(`Authoritative ReleaseQueue identity mismatch: ${field}`);
+    }
+  }
+  if (phase === "ACCEPTED" && continuation.assignment_identity &&
+      rowValue(leadLogHeaders, leadLogRow, "lead_status").toUpperCase() === "NEW") {
+    for (const field of ["lifecycle_id", "assignment_id", "assignment_sequence", "owner_epoch_id", "agent_id_snapshot", "policy_snapshot_id"]) {
+      if (rowValue(leadLogHeaders, leadLogRow, field) !== String(continuation.assignment_identity[field])) {
+        throw new Error(`Authoritative LeadLog assignment mismatch: ${field}`);
+      }
+    }
+  }
+}
+
+async function assertNoPendingReleaseConsequences({ sheets, continuation, clientId, leadId, leadDataSpreadsheetId }) {
+  const [actionResponse, reminderResponse, lifecycleResponse] = await Promise.all([
+    sheets.spreadsheets.values.get({ spreadsheetId: ACTION_LINK_MAP_SHEET_ID, range: "ActionLinkMap!A1:Y10000" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: SHEET_ID, range: "ReminderQueue!A1:Z10000" }),
+    sheets.spreadsheets.values.get({ spreadsheetId: leadDataSpreadsheetId, range: "LeadLifecycleLog!A1:L10000" })
+  ]);
+  const assignmentId = continuation.assignment_identity?.assignment_id || "";
+  const gatewayId = continuation.plan?.gateway_id || "";
+  const actions = rowsToObjects(actionResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId &&
+    ((gatewayId && value.gateway_id === gatewayId) || (assignmentId && value.assignment_id === assignmentId))
+  );
+  const reminders = rowsToObjects(reminderResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId && assignmentId && value.assignment_id === assignmentId
+  );
+  const lifecycleEvents = rowsToObjects(lifecycleResponse.data.values || []).filter(value =>
+    value.client_id === clientId && value.lead_id === leadId &&
+    value.event_id === continuation.plan?.lifecycle_event_id
+  );
+  if (actions.length || reminders.length || lifecycleEvents.length) {
+    throw new Error("Pending routing obligation has post-assignment consequences and cannot be admitted.");
+  }
+}
+
 function routeWeightedInterleaved({ agents, routing_pointer }) {
   const activeAgents = agents.filter(agent => {
     return String(agent.agent_status || "").trim() === "ACTIVE";
@@ -914,6 +1244,26 @@ function rowsToObjects(rows) {
 
     return obj;
   });
+}
+
+function getCoordinatedReleaseRoutingState({ values, clientId }) {
+  const headers = values[0] || [];
+  const required = [
+    "client_id", "routing_state_version", "routing_pointer", "last_assigned_agent_id",
+    "last_assignment_timestamp", "total_assignments_today", "notes", "updated_ts_utc"
+  ];
+  const missing = required.filter(header => !headers.includes(header));
+  if (missing.length) throw new Error(`RoutingState is missing required coordinated headers: ${missing.join(", ")}`);
+  const matches = rowsToObjects(values).filter(row => String(row.client_id || "").trim() === clientId);
+  if (matches.length !== 1) throw new Error(`RoutingState must contain exactly one row for client_id ${clientId}; found ${matches.length}.`);
+  const row = { ...matches[0] };
+  for (const field of ["routing_state_version", "routing_pointer", "total_assignments_today"]) {
+    if (!/^\d+$/.test(String(row[field] ?? ""))) throw new Error(`RoutingState ${field} must be a nonnegative integer.`);
+    row[field] = Number(row[field]);
+    if (!Number.isSafeInteger(row[field])) throw new Error(`RoutingState ${field} exceeds the safe integer range.`);
+  }
+  routingStateFingerprint(row);
+  return row;
 }
 
 function getRequiredHeaderIndex(headers, headerName) {
@@ -1246,7 +1596,9 @@ async function createReleaseInitialActionLink({
   assigned_agent_id,
   trace_id,
   nowUtc,
-  assignment_identity
+  assignment_identity,
+  planned_gateway,
+  continuation_context
 }) {
   const gateway_context =
     "INITIAL_RESPONSE_GATEWAY";
@@ -1254,7 +1606,9 @@ async function createReleaseInitialActionLink({
   const created_ts_utc =
     nowUtc;
   const gatewayIdentity = assignment_identity
-    ? createGatewayIdentity(assignment_identity)
+    ? (planned_gateway?.gateway_id
+      ? { ...assignment_identity, gateway_id: planned_gateway.gateway_id }
+      : createGatewayIdentity(assignment_identity))
     : null;
 
   const existingRes =
@@ -1269,10 +1623,10 @@ async function createReleaseInitialActionLink({
   const existingShortCodes =
     new Set(existingRows.slice(1).map(row => row[0]));
 
-  let short_code;
+  let short_code = "";
   let attempts = 0;
 
-  while (attempts < 3) {
+  while (!short_code && attempts < 3) {
     const candidate =
       generateShortCode();
 
@@ -1289,10 +1643,10 @@ async function createReleaseInitialActionLink({
     throw new Error("Failed to generate unique short_code for release INITIAL_RESPONSE_GATEWAY after 3 attempts");
   }
 
-  const public_url =
+  let public_url =
     `https://engagepriority.com/a/${short_code}`;
 
-  await sheets.spreadsheets.values.append({
+  const append = () => sheets.spreadsheets.values.append({
     spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
     range: "ActionLinkMap!A:Y",
     valueInputOption: "RAW",
@@ -1321,6 +1675,28 @@ async function createReleaseInitialActionLink({
       ]]
     }
   });
+  const observed = await reconcileReleaseCreate({
+    context: continuation_context,
+    step: "ACTION_LINK",
+    sheets,
+    spreadsheetId: ACTION_LINK_MAP_SHEET_ID,
+    range: "ActionLinkMap!A1:Y10000",
+    match: value => gatewayIdentity?.gateway_id
+      ? value.gateway_id === gatewayIdentity.gateway_id || value.short_code === short_code
+      : value.lead_id === lead_id && value.trace_id === trace_id && value.gateway_context === gateway_context,
+    exact: value => value.client_id === client.client_id && value.assigned_agent_id === assigned_agent_id &&
+      (!gatewayIdentity || value.gateway_id === gatewayIdentity.gateway_id),
+    evidence: value => ({
+      gateway_id: value.gateway_id || "",
+      lead_id: value.lead_id,
+      row_number: value._row_number
+    }),
+    create: append
+  });
+  if (observed?.row) {
+    short_code = observed.row.short_code;
+    public_url = observed.row.public_url;
+  }
 
   return {
     INITIAL_RESPONSE_GATEWAY: {
@@ -1339,7 +1715,8 @@ async function createReleaseReminderQueueRow({
   assigned_agent_id,
   trace_id,
   nowUtc,
-  assignment_identity
+  assignment_identity,
+  continuation_context
 }) {
   const reminderDelayMinutes =
     parseInt(client.reminder_1_delay_minutes, 10);
@@ -1348,7 +1725,7 @@ async function createReleaseReminderQueueRow({
     throw new Error(`Invalid reminder_1_delay_minutes for client_id: ${client.client_id}`);
   }
 
-  const nextActionDue =
+  const nextActionDue = continuation_context?.continuation?.plan?.reminder_due_ts_utc ||
     new Date(new Date(nowUtc).getTime() + reminderDelayMinutes * 60000).toISOString();
 
   const reminderRow = [
@@ -1367,13 +1744,28 @@ async function createReleaseReminderQueueRow({
     ...identityValues(assignment_identity)
   ];
 
-  await sheets.spreadsheets.values.append({
+  await reconcileReleaseCreate({
+    context: continuation_context,
+    step: "REMINDER",
+    sheets,
     spreadsheetId: SHEET_ID,
-    range: "ReminderQueue!A1",
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [reminderRow]
-    }
+    range: "ReminderQueue!A1:Z10000",
+    match: value => value.lead_id === lead_id &&
+      (assignment_identity ? value.assignment_id === assignment_identity.assignment_id : value.trace_id === trace_id),
+    exact: value => value.client_id === client.client_id && value.assigned_agent_id === assigned_agent_id &&
+      value.next_action_due_ts_utc === nextActionDue && value.active_monitoring === "TRUE" && value.trace_id === trace_id &&
+      (!assignment_identity || value.lifecycle_id === assignment_identity.lifecycle_id),
+    evidence: value => ({
+      assignment_id: value.assignment_id || "",
+      lead_id: value.lead_id,
+      row_number: value._row_number
+    }),
+    create: () => sheets.spreadsheets.values.append({
+      spreadsheetId: SHEET_ID,
+      range: "ReminderQueue!A1",
+      valueInputOption: "RAW",
+      requestBody: { values: [reminderRow] }
+    })
   });
 
   return {
@@ -1385,6 +1777,60 @@ async function createReleaseReminderQueueRow({
 
 const SMS_COMPLIANCE_FOOTER =
   "\n\nReply STOP to opt out. Reply HELP for help.";
+
+function createReleaseObligationValidator(context) {
+  return (record, key) => validateRoutingObligation({
+    record,
+    key,
+    environment: context.config.environment,
+    logicalReference: context.logicalReference,
+    verifyResponse: context.coordinationClient.verify
+  });
+}
+
+async function reconcileReleaseCreate({ context, step, sheets, spreadsheetId, range, match, exact, evidence, create }) {
+  if (!context) {
+    await create();
+    return { state: "EXACT" };
+  }
+  const inspect = async () => {
+    const values = (await sheets.spreadsheets.values.get({ spreadsheetId, range })).data.values || [];
+    const objects = rowsToObjects(values);
+    return inspectUniqueRows(objects, {
+      match,
+      exact,
+      evidence: value => evidence
+        ? evidence({ ...value, _row_number: objects.indexOf(value) + 2 })
+        : { row_number: objects.indexOf(value) + 2 }
+    });
+  };
+  return reconcileCreateStep({
+    store: context.obligationStore,
+    key: context.operationKey,
+    validate: createReleaseObligationValidator(context),
+    step,
+    inspect,
+    create,
+    afterCreate: releaseTestRuntime?.afterRoutingConsequenceCreate
+  });
+}
+
+async function reconcileReleaseMutation({ context, step, inspect, apply, authorizeBeforeApply }) {
+  if (!context) {
+    await apply();
+    return { state: "EXACT" };
+  }
+  return reconcileMutationStep({
+    store: context.obligationStore,
+    key: context.operationKey,
+    validate: createReleaseObligationValidator(context),
+    step,
+    inspect,
+    apply,
+    authorizeBeforeApply,
+    afterApply: releaseTestRuntime?.afterRoutingConsequenceCreate
+  });
+}
 
 function appendSmsComplianceFooter(message) {
   const normalizedMessage =
@@ -1626,7 +2072,13 @@ async function markReleaseQueueFailed({
 }
 
 exports._test = {
+  assertNoPendingReleaseConsequences,
+  assertReleaseContinuationBinding,
+  classifyReleaseAdmission,
+  classifyReleaseLeadAdmission,
   createReleaseInitialActionLink,
   createReleaseReminderQueueRow,
-  updateLeadLogAfterReleaseAssignment
+  getCoordinatedReleaseRoutingState,
+  updateLeadLogAfterReleaseAssignment,
+  setRuntime(runtime) { releaseTestRuntime = runtime; }
 };
