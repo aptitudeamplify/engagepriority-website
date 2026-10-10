@@ -301,7 +301,7 @@ function validateConsequenceState(value, decisionType, continuation) {
     }
   }
   const downstreamStep = decisionType === DECISION_TYPES.INITIAL_INTAKE ? "LEGACY_PROJECTION" : "RELEASE_QUEUE";
-  if (value[downstreamStep] !== undefined && value[downstreamStep].status !== "COMPLETED" &&
+  if (value[downstreamStep] !== undefined &&
       !isSmsDownstreamAuthorized({ consequence_state: value }) && !isRetryLineageDispatchState(value.SMS)) {
     throw new Error(`Routing obligation downstream consequence is not authorized: ${downstreamStep}`);
   }

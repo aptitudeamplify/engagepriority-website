@@ -931,6 +931,182 @@ test("dispatch retry provenance and exact evidence distinguish first dispatch fr
   ]) assert.throws(() => validateFixture(intake, { ...base, SMS: rejected }));
 });
 
+test("completed downstream consequences require an authorized or retry-lineage SMS state", async () => {
+  const intake = await acceptedFixture();
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  const invalidSmsStates = [
+    null,
+    consequence("DISPATCHING", { dispatch_started: true }),
+    consequence("AMBIGUOUS", { reason: "UNKNOWN" }),
+    consequence("MANUAL_RECONCILIATION", { reason: "MANUAL" })
+  ];
+  for (const sms of invalidSmsStates) {
+    const intakeState = validIntakeState();
+    if (sms) intakeState.SMS = sms; else delete intakeState.SMS;
+    assert.throws(() => validateFixture(intake, intakeState));
+    const releaseState = validReleaseState();
+    if (sms) releaseState.SMS = sms; else delete releaseState.SMS;
+    assert.throws(() => validateFixture(release, releaseState));
+  }
+
+  const validSmsStates = [
+    consequence("COMPLETED", { dispatched: true, provider_message_id: "SM-1", provider_status: "SUBMITTED" }),
+    consequence("COMPLETED", { dispatched: false, reason: "DISABLED" }),
+    consequence("PENDING", { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "HTTP_503" }),
+    consequence("DISPATCHING", { dispatch_started: true, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("AMBIGUOUS", { reason: "UNKNOWN", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("MANUAL_RECONCILIATION", { reason: "MANUAL", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" })
+  ];
+  for (const sms of validSmsStates) {
+    const intakeState = validIntakeState(); intakeState.SMS = sms;
+    assert.doesNotThrow(() => validateFixture(intake, intakeState));
+    const releaseState = validReleaseState(); releaseState.SMS = sms;
+    assert.doesNotThrow(() => validateFixture(release, releaseState));
+  }
+});
+
+test("completed ReleaseQueue preserves missing lifecycle-event recovery for every retry-lineage SMS state", async () => {
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  for (const sms of [
+    consequence("DISPATCHING", { dispatch_started: true, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("AMBIGUOUS", { reason: "UNKNOWN", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" }),
+    consequence("MANUAL_RECONCILIATION", { reason: "MANUAL", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" })
+  ]) {
+    const state = validReleaseState();
+    state.SMS = sms;
+    delete state.LIFECYCLE_EVENT;
+    assert.doesNotThrow(() => validateFixture(release, state));
+  }
+});
+
+test("exact dispatch and create evidence rejects every missing, blank, wrong, and extra shape", async () => {
+  const intake = await acceptedFixture();
+  const assertBad = (status, evidence) => assert.throws(() => validateFixture(intake, {
+    LEAD_LOG: consequence("COMPLETED", { lead_id: "L-1", row_number: 2 }),
+    LEAD_INDEX: consequence("COMPLETED", { lead_id: "L-1", row_number: 3 }),
+    REMINDER: consequence("COMPLETED", { assignment_id: "as-1", row_number: 4 }),
+    ACTION_LINK: consequence("COMPLETED", { gateway_id: "gw-1", row_number: 5 }),
+    IDEMPOTENCY: consequence("COMPLETED", { lead_id: "L-1", row_number: 6 }),
+    SMS: consequence(status, evidence)
+  }));
+
+  for (const evidence of [{}, { claim_id: "" }, { claim_id: "claim-1", extra: true }]) {
+    assert.throws(() => validateFixture(intake, { LEAD_LOG: consequence("CREATING", evidence) }));
+  }
+  for (const evidence of [
+    { error_code: "X" },
+    { reason: "", error_code: "X" },
+    { reason: "OTHER", error_code: "X" },
+    { reason: "DEFINITIVE_NO_ACCEPTANCE" },
+    { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "" },
+    { reason: "DEFINITIVE_NO_ACCEPTANCE", error_code: "X", extra: true }
+  ]) assertBad("PENDING", evidence);
+  for (const evidence of [{}, { dispatch_started: false }, { dispatch_started: true, extra: true }]) {
+    assertBad("DISPATCHING", evidence);
+  }
+  for (const evidence of [
+    { dispatch_started: true, retry_provenance: "" },
+    { dispatch_started: true, retry_provenance: "OTHER" },
+    { dispatch_started: false, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE" },
+    { dispatch_started: true, retry_provenance: "DEFINITIVE_NO_ACCEPTANCE", extra: true }
+  ]) assertBad("DISPATCHING", evidence);
+
+  for (const status of ["AMBIGUOUS", "MANUAL_RECONCILIATION"]) {
+    for (const evidence of [{}, { reason: "" }, { reason: "X", error_code: "" }, { reason: "X", extra: true }]) {
+      assertBad(status, evidence);
+    }
+    for (const evidence of [
+      { reason: "X", retry_provenance: "" },
+      { reason: "X", retry_provenance: "OTHER" },
+      { reason: "X", error_code: "E", retry_provenance: "DEFINITIVE_NO_ACCEPTANCE", extra: true }
+    ]) assertBad(status, evidence);
+  }
+});
+
+test("SMS and Legacy Projection completion evidence rejects every malformed exact shape", async () => {
+  const intake = await acceptedFixture();
+  for (const evidence of [
+    { provider_message_id: "SM-1", provider_status: "SUBMITTED" },
+    { dispatched: true, provider_status: "SUBMITTED" },
+    { dispatched: true, provider_message_id: "", provider_status: "SUBMITTED" },
+    { dispatched: true, provider_message_id: "SM-1", provider_status: "SENT" },
+    { dispatched: false, provider_message_id: "SM-1", provider_status: "SUBMITTED" },
+    { dispatched: true, provider_message_id: "SM-1", provider_status: "SUBMITTED", extra: true },
+    { dispatched: false },
+    { dispatched: true, reason: "DISABLED" },
+    { dispatched: false, reason: "" },
+    { dispatched: false, reason: "OTHER" },
+    { dispatched: false, reason: "DISABLED", extra: true }
+  ]) {
+    const state = validIntakeState(); state.SMS = consequence("COMPLETED", evidence);
+    assert.throws(() => validateFixture(intake, state));
+  }
+  for (const evidence of [{}, { status: "" }, { status: "OTHER" }, { status: "LEGACY_MAKE_SUBMITTED", extra: true }]) {
+    const state = validIntakeState(); state.LEGACY_PROJECTION = consequence("COMPLETED", evidence);
+    assert.throws(() => validateFixture(intake, state));
+  }
+});
+
+test("every initial-intake completed Sheet evidence family enforces exact identity and row shape", async () => {
+  const intake = await acceptedFixture();
+  const families = {
+    LEAD_LOG: { identity: "lead_id", valid: { lead_id: "L-1", row_number: 2 } },
+    LEAD_INDEX: { identity: "lead_id", valid: { lead_id: "L-1", row_number: 3 } },
+    REMINDER: { identity: "assignment_id", valid: { assignment_id: "as-1", row_number: 4 } },
+    ACTION_LINK: { identity: "gateway_id", valid: { gateway_id: "gw-1", row_number: 5 } },
+    IDEMPOTENCY: { identity: "lead_id", valid: { lead_id: "L-1", row_number: 6 } }
+  };
+  for (const [step, family] of Object.entries(families)) {
+    const malformed = [];
+    const missing = { ...family.valid }; delete missing[family.identity]; malformed.push(missing);
+    malformed.push({ ...family.valid, [family.identity]: "" });
+    malformed.push({ ...family.valid, extra: true });
+    const missingRow = { ...family.valid }; delete missingRow.row_number; malformed.push(missingRow);
+    for (const row_number of [1, 2.5, "2"]) malformed.push({ ...family.valid, row_number });
+    for (const evidence of malformed) {
+      const state = validIntakeState(); state[step] = consequence("COMPLETED", evidence);
+      assert.throws(() => validateFixture(intake, state), step);
+    }
+  }
+});
+
+test("every release completed evidence family enforces exact keys, text, and applicable row shape", async () => {
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  const families = {
+    LEAD_LOG: { identities: ["lead_id"], valid: { lead_id: "L-1" } },
+    ACTION_LINK: { identities: ["gateway_id", "lead_id"], valid: { gateway_id: "gw-1", lead_id: "L-1", row_number: 2 }, row: true },
+    REMINDER: { identities: ["assignment_id", "lead_id"], valid: { assignment_id: "as-1", lead_id: "L-1", row_number: 3 }, row: true },
+    RELEASE_QUEUE: { identities: ["release_id"], valid: { release_id: "REL-1" } },
+    LIFECYCLE_EVENT: { identities: ["event_id", "lead_id"], valid: { event_id: "event-1", lead_id: "L-1", row_number: 4 }, row: true }
+  };
+  for (const [step, family] of Object.entries(families)) {
+    const malformed = [{ ...family.valid, extra: true }];
+    for (const identity of family.identities) {
+      const missing = { ...family.valid }; delete missing[identity]; malformed.push(missing);
+      malformed.push({ ...family.valid, [identity]: "" });
+    }
+    if (family.row) for (const row_number of [1, 2.5, "2"]) malformed.push({ ...family.valid, row_number });
+    if (family.row) {
+      const missingRow = { ...family.valid }; delete missingRow.row_number; malformed.push(missingRow);
+    }
+    for (const evidence of malformed) {
+      const state = validReleaseState(); state[step] = consequence("COMPLETED", evidence);
+      assert.throws(() => validateFixture(release, state), step);
+    }
+  }
+});
+
+test("legacy null-identity release preserves blank gateway and assignment evidence", async () => {
+  const release = await acceptedFixture(DECISION_TYPES.AFTER_HOURS_RELEASE);
+  release.record.continuation.lifecycle_identity = null;
+  release.record.continuation.assignment_identity = null;
+  delete release.record.continuation.plan.gateway_id;
+  const state = validReleaseState();
+  state.ACTION_LINK.evidence.gateway_id = "";
+  state.REMINDER.evidence.assignment_id = "";
+  assert.doesNotThrow(() => validateFixture(release, state));
+});
+
 test("pending coordinator obligation cannot carry consequence progress", async () => {
   const fixture = await acceptedFixture();
   const pending = structuredClone(fixture.record);
