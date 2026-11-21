@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#04070d">
+  <meta name="description" content="Escucha el álbum Fe de Crystal y descubre nuestros videos oficiales.">
+  <title>Fe de Crystal | Álbum oficial</title>
+  <link rel="preload" href="/assets/fe-de-crystal-album.webp" as="image" type="image/webp">
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f7fbff;
+      --muted: #a9b8cb;
+      --line: rgba(166, 215, 255, 0.17);
+      --panel: rgba(6, 13, 24, 0.76);
+      --blue: #32b9ff;
+      --blue-bright: #8be1ff;
+      --blue-deep: #075dbe;
+      --shadow: 0 26px 70px rgba(0, 0, 0, 0.52);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      overflow-x: hidden;
+      color: var(--ink);
+      background: #020408;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      position: fixed;
+      z-index: -2;
+      inset: 0;
+      content: "";
+      background:
+        linear-gradient(90deg, rgba(1, 3, 8, 0.88) 0%, rgba(1, 5, 12, 0.5) 55%, rgba(1, 3, 8, 0.86) 100%),
+        linear-gradient(180deg, rgba(1, 4, 9, 0.2) 0%, #020408 72%),
+        url("/assets/fe-de-crystal-banner.webp") center top / cover no-repeat;
+      filter: saturate(1.05);
+    }
+
+    body::after {
+      position: fixed;
+      z-index: -1;
+      inset: 0;
+      pointer-events: none;
+      content: "";
+      background:
+        radial-gradient(circle at 24% 21%, rgba(0, 153, 255, 0.14), transparent 30%),
+        radial-gradient(circle at 78% 45%, rgba(62, 184, 255, 0.1), transparent 28%),
+        linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+      background-size: auto, auto, 52px 52px, 52px 52px;
+      mask-image: linear-gradient(to bottom, black, transparent 85%);
+    }
+
+    a { color: inherit; }
+
+    a:focus-visible {
+      outline: 3px solid var(--blue-bright);
+      outline-offset: 4px;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .site-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 86px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .wordmark {
+      display: inline-flex;
+      gap: 12px;
+      align-items: center;
+      color: #eaf7ff;
+      text-decoration: none;
+      text-transform: uppercase;
+      letter-spacing: 0.28em;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 0.82rem;
+    }
+
+    .crystal-mark {
+      width: 27px;
+      height: 34px;
+      background: linear-gradient(145deg, #e9faff 0%, #33bfff 42%, #06377d 100%);
+      clip-path: polygon(50% 0, 91% 28%, 74% 82%, 50% 100%, 19% 80%, 7% 30%);
+      filter: drop-shadow(0 0 9px rgba(65, 192, 255, 0.75));
+    }
+
+    .header-link {
+      padding: 10px 0;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: color 180ms ease;
+    }
+
+    .header-link:hover { color: var(--ink); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.92fr) minmax(380px, 1.08fr);
+      gap: clamp(42px, 7vw, 92px);
+      align-items: center;
+      min-height: calc(100svh - 86px);
+      padding: clamp(48px, 7vw, 90px) 0;
+    }
+
+    .album-wrap {
+      position: relative;
+      width: min(100%, 540px);
+      justify-self: end;
+    }
+
+    .album-wrap::before {
+      position: absolute;
+      z-index: -1;
+      inset: 10% 8% -8%;
+      border-radius: 50%;
+      content: "";
+      background: rgba(22, 162, 255, 0.34);
+      filter: blur(50px);
+    }
+
+    .album-art {
+      display: block;
+      width: 100%;
+      height: auto;
+      border: 1px solid rgba(191, 230, 255, 0.25);
+      border-radius: 3px;
+      box-shadow: var(--shadow), 0 0 0 9px rgba(255, 255, 255, 0.025), 0 0 48px rgba(34, 170, 255, 0.16);
+    }
+
+    .album-caption {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 20px;
+      color: var(--muted);
+      font-size: 0.73rem;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .album-caption::before {
+      width: 50px;
+      height: 1px;
+      margin-right: 14px;
+      content: "";
+      background: linear-gradient(90deg, var(--blue), transparent);
+    }
+
+    .hero-copy {
+      max-width: 590px;
+      padding: 34px 0;
+    }
+
+    .eyebrow {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin: 0 0 20px;
+      color: var(--blue-bright);
+      font-size: 0.72rem;
+      font-weight: 800;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      width: 30px;
+      height: 1px;
+      content: "";
+      background: currentColor;
+      box-shadow: 0 0 9px currentColor;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 10ch;
+      background: linear-gradient(180deg, #fff 16%, #a9cbe0 100%);
+      background-clip: text;
+      color: transparent;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(3.3rem, 8vw, 6.8rem);
+      font-weight: 400;
+      line-height: 0.86;
+      letter-spacing: -0.055em;
+      text-transform: uppercase;
+      text-shadow: 0 0 36px rgba(133, 209, 255, 0.12);
+    }
+
+    .listen-heading {
+      max-width: 570px;
+      margin: 31px 0 24px;
+      color: #d7e4ee;
+      font-size: clamp(1.3rem, 2.6vw, 1.85rem);
+      font-weight: 500;
+      line-height: 1.35;
+    }
+
+    .platforms {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .platform-button,
+    .channel-button {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 58px;
+      padding: 14px 17px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(18, 30, 47, 0.84), rgba(6, 12, 22, 0.9));
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+      color: #eaf5fc;
+      text-decoration: none;
+      font-size: 0.91rem;
+      font-weight: 750;
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+    }
+
+    .platform-button:hover,
+    .channel-button:hover {
+      transform: translateY(-2px);
+      border-color: rgba(100, 206, 255, 0.62);
+      background: linear-gradient(135deg, rgba(18, 58, 92, 0.9), rgba(6, 19, 36, 0.96));
+    }
+
+    .platform-name {
+      display: inline-flex;
+      gap: 11px;
+      align-items: center;
+    }
+
+    .service-dot {
+      display: grid;
+      width: 29px;
+      height: 29px;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 50%;
+      color: #fff;
+      font-size: 0.67rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+    }
+
+    .spotify .service-dot { background: #1db954; color: #05180c; }
+    .apple .service-dot { background: #f2f2f2; color: #111; }
+    .youtube .service-dot { background: #ff0033; }
+    .amazon .service-dot { background: #1778b7; }
+    .pandora .service-dot { background: #224099; }
+
+    .arrow {
+      color: #70ccff;
+      font-size: 1.08rem;
+      transition: transform 180ms ease;
+    }
+
+    .platform-button:hover .arrow,
+    .channel-button:hover .arrow { transform: translateX(3px); }
+
+    .videos {
+      padding: clamp(72px, 9vw, 118px) 0 84px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-heading {
+      display: flex;
+      gap: 22px;
+      align-items: end;
+      justify-content: space-between;
+      margin-bottom: 30px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(2.1rem, 5vw, 4rem);
+      font-weight: 400;
+      line-height: 1;
+      letter-spacing: -0.035em;
+    }
+
+    .section-heading p {
+      max-width: 420px;
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .video-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .video-card {
+      position: relative;
+      display: flex;
+      min-height: 260px;
+      overflow: hidden;
+      align-items: end;
+      padding: 24px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background:
+        linear-gradient(180deg, rgba(4, 8, 15, 0.08), rgba(2, 5, 10, 0.97)),
+        url("/assets/fe-de-crystal-banner.webp") center / cover;
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
+      text-decoration: none;
+      transition: transform 180ms ease, border-color 180ms ease;
+    }
+
+    .video-card:nth-child(2) { background-position: 25% center; }
+    .video-card:nth-child(3) { background-position: 70% center; }
+
+    .video-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(100, 206, 255, 0.62);
+    }
+
+    .play {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      display: grid;
+      width: 48px;
+      height: 48px;
+      place-items: center;
+      border: 1px solid rgba(255, 255, 255, 0.22);
+      border-radius: 50%;
+      background: rgba(2, 8, 17, 0.72);
+      color: var(--blue-bright);
+      backdrop-filter: blur(8px);
+    }
+
+    .play::before {
+      margin-left: 3px;
+      content: "";
+      border-top: 7px solid transparent;
+      border-bottom: 7px solid transparent;
+      border-left: 11px solid currentColor;
+    }
+
+    .video-label {
+      color: var(--blue-bright);
+      font-size: 0.67rem;
+      font-weight: 800;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .video-title {
+      display: block;
+      margin-top: 8px;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.45rem, 2.6vw, 2rem);
+    }
+
+    .channel-button {
+      width: fit-content;
+      min-width: 245px;
+      margin: 28px auto 0;
+      padding-inline: 22px;
+      border-color: rgba(62, 188, 255, 0.42);
+      background: linear-gradient(135deg, #0d6fb3, #083866);
+    }
+
+    footer {
+      padding: 28px 0 42px;
+      border-top: 1px solid var(--line);
+      color: #7f91a5;
+      font-size: 0.76rem;
+      letter-spacing: 0.12em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 820px) {
+      .shell { width: min(100% - 28px, 680px); }
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 24px;
+        min-height: auto;
+        padding-top: 40px;
+      }
+      .album-wrap {
+        width: min(88vw, 520px);
+        justify-self: center;
+      }
+      .hero-copy {
+        max-width: 620px;
+        padding: 28px 0 58px;
+        text-align: center;
+      }
+      .eyebrow { justify-content: center; }
+      h1 { max-width: none; }
+      .listen-heading { margin-inline: auto; }
+      .video-grid { grid-template-columns: 1fr; }
+      .video-card { min-height: 220px; }
+      .section-heading {
+        align-items: start;
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .site-header { min-height: 72px; }
+      .wordmark { font-size: 0.68rem; letter-spacing: 0.2em; }
+      .crystal-mark { width: 22px; height: 29px; }
+      .header-link { font-size: 0.72rem; }
+      .hero { padding-top: 26px; }
+      .album-wrap { width: 100%; }
+      .album-caption { font-size: 0.65rem; }
+      .hero-copy { padding-top: 24px; }
+      h1 { font-size: clamp(3rem, 18vw, 4.5rem); }
+      .listen-heading { margin-top: 25px; font-size: 1.22rem; }
+      .platforms { grid-template-columns: 1fr; }
+      .platform-button { min-height: 56px; }
+      .videos { padding-top: 64px; }
+      .section-heading h2 { font-size: 2.6rem; }
+      .video-card { min-height: 190px; }
+      .channel-button { width: 100%; min-width: 0; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell site-header">
+    <a class="wordmark" href="#inicio" aria-label="Fe de Crystal, inicio">
+      <span class="crystal-mark" aria-hidden="true"></span>
+      <span>Fe de Crystal</span>
+    </a>
+    <a class="header-link" href="#videos">Videos</a>
+  </header>
+
+  <main>
+    <section class="shell hero" id="inicio" aria-labelledby="album-title">
+      <figure class="album-wrap">
+        <img class="album-art" src="/assets/fe-de-crystal-album.webp" width="1200" height="1200" alt="Portada del álbum Fe de Crystal con un cristal azul luminoso fragmentándose sobre un fondo oscuro">
+        <figcaption class="album-caption"><span>Álbum</span><span>Fe de Crystal</span></figcaption>
+      </figure>
+
+      <div class="hero-copy">
+        <p class="eyebrow">Álbum oficial</p>
+        <h1 id="album-title">Fe de Crystal</h1>
+        <p class="listen-heading">Escucha nuestro álbum en tu plataforma favorita.</p>
+
+        <div class="platforms" aria-label="Plataformas de música">
+          <a class="platform-button spotify" href="https://open.spotify.com/artist/4q8xarh52TxQpZmIzYrwDz?si=64JThihOSqa4e3gV8rLmPw" target="_blank" rel="noopener noreferrer">
+            <span class="platform-name"><span class="service-dot" aria-hidden="true">S</span>Spotify</span><span class="arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="platform-button apple" href="https://music.apple.com/us/artist/fe-de-crystal/6831714373" target="_blank" rel="noopener noreferrer">
+            <span class="platform-name"><span class="service-dot" aria-hidden="true">A</span>Apple Music</span><span class="arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="platform-button youtube" href="https://music.youtube.com/playlist?list=OLAK5uy_nJ2D33vVv6qx-c9TKk2zlm3dIunFjMGms&amp;si=2N-C5MXK-mePjD_6" target="_blank" rel="noopener noreferrer">
+            <span class="platform-name"><span class="service-dot" aria-hidden="true">▶</span>YouTube Music</span><span class="arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="platform-button amazon" href="https://music.amazon.com/albums/B0HQQ25D99?ref=dm_sh_b472-e203-14b9-982d-bb9e7" target="_blank" rel="noopener noreferrer">
+            <span class="platform-name"><span class="service-dot" aria-hidden="true">a</span>Amazon Music</span><span class="arrow" aria-hidden="true">→</span>
+          </a>
+          <a class="platform-button pandora" href="https://www.pandora.com/artist/fe-de-crystal/fe-de-crystal/ALpxh232K5lr922" target="_blank" rel="noopener noreferrer">
+            <span class="platform-name"><span class="service-dot" aria-hidden="true">P</span>Pandora</span><span class="arrow" aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="videos" id="videos" aria-labelledby="videos-title">
+      <div class="shell">
+        <div class="section-heading">
+          <h2 id="videos-title">Nuestros videos</h2>
+          <p>Tres canciones. Tres historias. Descubre el universo visual de Fe de Crystal.</p>
+        </div>
+
+        <div class="video-grid">
+          <a class="video-card" href="https://youtu.be/6AsxpjJh5AQ" target="_blank" rel="noopener noreferrer" aria-label="Ver Dualidad en YouTube">
+            <span class="play" aria-hidden="true"></span>
+            <span><span class="video-label">Video oficial</span><span class="video-title">Dualidad</span></span>
+          </a>
+          <a class="video-card" href="https://youtu.be/IA2YYAb5I3I" target="_blank" rel="noopener noreferrer" aria-label="Ver Extrañando tu Piel en YouTube">
+            <span class="play" aria-hidden="true"></span>
+            <span><span class="video-label">Video oficial</span><span class="video-title">Extrañando tu Piel</span></span>
+          </a>
+          <a class="video-card" href="https://youtu.be/Fc_3bleRyHs" target="_blank" rel="noopener noreferrer" aria-label="Ver Pisando el Césped en YouTube">
+            <span class="play" aria-hidden="true"></span>
+            <span><span class="video-label">Video oficial</span><span class="video-title">Pisando el Césped</span></span>
+          </a>
+        </div>
+
+        <a class="channel-button" href="https://www.youtube.com/@FeDeCrystalOficial" target="_blank" rel="noopener noreferrer">
+          <span>Ver nuestros videos</span><span class="arrow" aria-hidden="true">→</span>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">Fe de Crystal · Música en español</footer>
+</body>
+</html>
